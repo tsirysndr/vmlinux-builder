@@ -29,10 +29,13 @@ jobs:
       - name: Build
         run: |
           ./build.sh $TAG
+          sha256 linux-stable/vmlinux-${{ env.VERSION }} > linux-stable/vmlinux-${{ env.VERSION }}.sha256
 
       - name: Upload artifact
         uses: softprops/action-gh-release@v2
         with:
-          files: linux-stable/vmlinux-${{ env.VERSION }}
+          files: |
+            linux-stable/vmlinux-${{ env.VERSION }}
+            linux-stable/vmlinux-${{ env.VERSION }}.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
