@@ -1,0 +1,32 @@
+name: release
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The existing tag to publish"
+        type: "string"
+        required: true
+
+jobs:
+  publish:
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          ./build.sh ${{ inputs.tag || github.ref_name }}
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+      - name: Upload artifact
+        uses: softprops/action-gh-release@v2
+        with:
+          files: linux-stable/vmlinux-${TAG%.y}
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
