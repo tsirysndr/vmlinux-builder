@@ -16,9 +16,9 @@ fi
 
 echo "Building vmlinux for Linux kernel ${CYAN}${1}${NO_COLOR}"
 
-type apt-get > /dev/null || sudo apt-get install -y git build-essential flex bison libncurses5-dev libssl-dev gcc bc libelf-dev pahole
+type apt-get > /dev/null && sudo apt-get install -y git build-essential flex bison libncurses5-dev libssl-dev gcc bc libelf-dev pahole || true
 
-git clone --depth=1 -b linux-${1} git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git
+[ -d linux-stable ] || git clone --depth=1 -b linux-${1} git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git
 
 cp .config linux-stable/.config
 
