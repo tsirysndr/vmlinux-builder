@@ -18,15 +18,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set TAG and VERSION
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${TAG%.y}"
+          echo "TAG=$TAG" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
       - name: Build
         run: |
-          ./build.sh ${{ inputs.tag || github.ref_name }}
-        env:
-          TAG: ${{ inputs.tag || github.ref_name }}
+          ./build.sh $TAG
+
       - name: Upload artifact
         uses: softprops/action-gh-release@v2
         with:
-          files: linux-stable/vmlinux-${TAG%.y}
+          files: linux-stable/vmlinux-${{ env.VERSION }}
         env:
-          TAG: ${{ inputs.tag || github.ref_name }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
