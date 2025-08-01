@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e -o pipefail
+set -e
 
 readonly MAGENTA="$(tput setaf 5 2>/dev/null || echo '')"
 readonly GREEN="$(tput setaf 2 2>/dev/null || echo '')"
@@ -24,7 +24,7 @@ cp .config linux-stable/.config
 
 cd linux-stable
 
-yes ''  | make vmlinux -j$(nproc)
+yes ''  | make vmlinux -j$(nproc) < /dev/null
 
 VERSION=${1%.y}
 VMLINUX=$(echo vmlinux-${VERSION})
