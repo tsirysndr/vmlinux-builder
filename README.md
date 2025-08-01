@@ -27,7 +27,7 @@ Clone the repo and provide a kernel version:
 ./build.sh 6.16.y
 ```
 
-**Note:** Ensure a valid .config file is present in the root directory before running.
+**Note:** Ensure a valid `.config` file is present in the root directory before running.
 
 
 ### Example output
