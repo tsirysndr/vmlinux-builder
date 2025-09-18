@@ -25,7 +25,7 @@ jobs:
           VERSION="${TAG%.y}"
           echo "TAG=$TAG" >> $GITHUB_ENV
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "ARCH=$(uname -m)" >> $GITHUB_ENV
+          echo "CPU_ARCH=$(uname -m)" >> $GITHUB_ENV
 
       - name: Build
         run: |
@@ -36,7 +36,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            linux-stable/vmlinux-${{ env.VERSION }}.${{ env.ARCH }}
-            linux-stable/vmlinux-${{ env.VERSION }}.${{ env.ARCH }}.sha256
+            linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}
+            linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
