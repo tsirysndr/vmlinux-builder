@@ -29,7 +29,7 @@ yes ''  | make vmlinux -j$(nproc) < /dev/null
 VERSION=${1%.y}
 VMLINUX=$(echo vmlinux-${VERSION})
 
-mv vmlinux ${VMLINUX}
+mv vmlinux ${VMLINUX}.$(uname -m)
 
 echo "${GREEN}vmlinux built successfully!${NO_COLOR}"
 echo "You can find the vmlinux file in ${CYAN}$(pwd)/${VMLINUX}${NO_COLOR}"
