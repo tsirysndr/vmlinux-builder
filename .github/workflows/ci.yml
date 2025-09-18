@@ -14,7 +14,7 @@ jobs:
   publish:
     strategy:
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, ubuntu-latest-arm64]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -29,13 +29,13 @@ jobs:
       - name: Build
         run: |
           ./build.sh $TAG
-          sha256sum linux-stable/vmlinux-${{ env.VERSION }} > linux-stable/vmlinux-${{ env.VERSION }}.sha256
+          sha256sum linux-stable/vmlinux-${{ env.VERSION }}.$(uname -m) > linux-stable/vmlinux-${{ env.VERSION }}.$(uname -m).sha256
 
       - name: Upload artifact
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            linux-stable/vmlinux-${{ env.VERSION }}
-            linux-stable/vmlinux-${{ env.VERSION }}.sha256
+            linux-stable/vmlinux-${{ env.VERSION }}.$(uname -m)
+            linux-stable/vmlinux-${{ env.VERSION }}.$(uname -m).sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
