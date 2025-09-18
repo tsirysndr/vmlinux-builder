@@ -3,12 +3,6 @@ on:
   push:
     tags:
       - "*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "The existing tag to publish"
-        type: "string"
-        required: true
 
 jobs:
   publish:
@@ -20,17 +14,26 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set TAG and VERSION
+        shell: bash
         run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          VERSION="${TAG%.y}"
-          echo "TAG=$TAG" >> $GITHUB_ENV
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "CPU_ARCH=$(uname -m)" >> $GITHUB_ENV
+          TAG="${GITHUB_REF_NAME}"
+          TAG="${TAG#v}"   # strip leading v if present
+
+          # VERSION=6.16 for 6.16.y, otherwise keep full tag (e.g. 6.16.2)
+          if [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.y$ ]]; then
+            VERSION="${TAG%.y}"
+          else
+            VERSION="$TAG"
+          fi
+
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "CPU_ARCH=$(uname -m)" >> "$GITHUB_ENV"
 
       - name: Build
         run: |
           ./build.sh $TAG
-          sha256sum linux-stable/vmlinux-${{ env.VERSION }}.$(uname -m) > linux-stable/vmlinux-${{ env.VERSION }}.$(uname -m).sha256
+          sha256sum linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }} > linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}.sha256
 
       - name: Upload artifact
         uses: softprops/action-gh-release@v2
