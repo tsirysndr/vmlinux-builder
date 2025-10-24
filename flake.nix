@@ -15,6 +15,7 @@
     in {
       devShells.${system}.default = pkgs.mkShell {
         buildInputs = with pkgs; [
+          deno
           curl
           git
           gcc

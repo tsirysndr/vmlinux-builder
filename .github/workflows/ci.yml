@@ -12,7 +12,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
       - name: Set TAG and VERSION
         shell: bash
         run: |
@@ -32,7 +34,7 @@ jobs:
 
       - name: Build
         run: |
-          ./build.sh $TAG
+          ./build.ts $TAG
           sha256sum linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }} > linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}.sha256
 
       - name: Upload artifact
