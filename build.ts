@@ -189,7 +189,6 @@ yes.stdout.pipeTo(make.stdin).catch((err) => {
 });
 
 const { code: makeCode } = await make.status;
-yes.kill();
 
 if (makeCode !== 0) {
   Deno.exit(makeCode);
