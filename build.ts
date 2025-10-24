@@ -182,7 +182,11 @@ const yesProcess = new Deno.Command("yes", {
 const yes = yesProcess.spawn();
 const make = makeProcess.spawn();
 
-yes.stdout.pipeTo(make.stdin);
+yes.stdout.pipeTo(make.stdin).catch((err) => {
+  if (!err.message?.includes("Broken pipe")) {
+    throw err;
+  }
+});
 
 const { code: makeCode } = await make.status;
 yes.kill();
