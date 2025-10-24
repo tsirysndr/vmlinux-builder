@@ -168,7 +168,7 @@ Deno.chdir("linux-stable");
 const nproc = await getNproc();
 const makeProcess = new Deno.Command("make", {
   args: ["vmlinux", `-j${nproc}`],
-  stdin: "null",
+  stdin: "piped",
   stdout: "inherit",
   stderr: "inherit",
 });
