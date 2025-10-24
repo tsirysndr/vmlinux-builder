@@ -30,7 +30,7 @@ Install Deno if you haven't already:
 curl -fsSL https://deno.land/install.sh | sh
 ```
 
-Or follow the [official Deno installation guide](https://deno.land/#installation).
+Or follow the [official Deno installation guide](https://docs.deno.com/runtime/getting_started/installation).
 
 ## 🚀 Usage
 
