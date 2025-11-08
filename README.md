@@ -1,5 +1,6 @@
 # vmlinux-builder
 
+[![ci](https://github.com/tsirysndr/vmlinux-builder/actions/workflows/tests.yml/badge.svg)](https://github.com/tsirysndr/vmlinux-builder/actions/workflows/tests.yml)
 [![release](https://github.com/tsirysndr/vmlinux-builder/actions/workflows/ci.yml/badge.svg)](https://github.com/tsirysndr/vmlinux-builder/actions/workflows/ci.yml)
 
 📦 **vmlinux-builder** is a lightweight TypeScript/Deno-based tool to fetch, configure, and build the Linux kernel `vmlinux` image for a given version — ideal for use with Firecracker microVMs or other kernel-related debugging/testing tasks.
