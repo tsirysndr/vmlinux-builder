@@ -40,7 +40,6 @@ Or follow the [official Deno installation guide](https://docs.deno.com/runtime/g
 ## 🚀 Usage
 
 ```bash
-# Build for x86_64 (default)
 deno run -A jsr:@tsiry/vmlinux-builder 6.17.7
 ```
 
