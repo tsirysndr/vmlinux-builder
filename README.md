@@ -47,7 +47,8 @@ deno run -A jsr:@tsiry/vmlinux-builder 6.17.7
 Or with docker:
 
 ```bash
-docker run --rm -it -v $(pwd):/app tsiry/vmlinux-builder:latest 6.17.7
+docker volume create linux-build
+docker run --rm -it -v linux-build:/app tsiry/vmlinux-builder:latest 6.17.7
 ```
 
 ### Supported Version Formats
