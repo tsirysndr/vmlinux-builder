@@ -57,4 +57,4 @@ jobs:
         run: |
           docker pull tsiry/vmlinux-builder:latest
           docker tag tsiry/vmlinux-builder:latest ghcr.io/tsirysndr/vmlinux-builder:latest
-          docker push ghcr.io/tsirysndr/vmlimux-builder:latest
+          docker push ghcr.io/tsirysndr/vmlinux-builder:latest
