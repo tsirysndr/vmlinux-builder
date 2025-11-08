@@ -1,8 +1,19 @@
-FROM denoland/deno:latest
+FROM denoland/deno:latest AS builder
 
-RUN apt-get update
+WORKDIR /app
 
-RUN apt-get install -y \
+# Copy only the files needed for installing dependencies
+COPY deno.json deno.lock ./
+
+RUN deno install
+
+COPY . .
+
+RUN deno compile -A -o vmlinux-builder ./build.ts
+
+FROM ubuntu:latest
+
+RUN apt-get update && apt-get install -y \
   git \
   build-essential \
   flex \
@@ -12,20 +23,9 @@ RUN apt-get install -y \
   gcc \
   bc \
   libelf-dev \
-  pahole
+  pahole \
+  && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-
-COPY deno.json deno.json
-
-COPY deno.lock deno.lock
-
-RUN deno install
-
-COPY . .
-
-RUN deno compile -A -o vmlinux-builder ./build.ts
-
-RUN mv vmlinux-builder /usr/local/bin/vmlinux-builder
+COPY --from=builder /app/vmlinux-builder /usr/local/bin/vmlinux-builder
 
 ENTRYPOINT ["vmlinux-builder"]
