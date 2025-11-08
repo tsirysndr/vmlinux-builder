@@ -1,5 +1,8 @@
 #!/usr/bin/env -S deno run --allow-run --allow-read --allow-write --allow-env --allow-net
 import chalk from "chalk";
+import cfg from "./.default-config" with { type: "text" };
+
+export * from "./config.ts";
 
 async function run(cmd: string[]): Promise<void> {
   const process = new Deno.Command(cmd[0], {
@@ -159,6 +162,15 @@ if (!(await fileExists("linux-stable"))) {
   }
 
   await run(["git", "-C", "linux-stable", "checkout", "-f", REF]);
+}
+
+if (!(await Deno.stat(".config").catch(() => false))) {
+  console.log(
+    chalk.yellow(
+      "No .config file found in the current directory. Using default configuration."
+    )
+  );
+  await Deno.writeTextFile(".config", cfg);
 }
 
 await Deno.copyFile(".config", "linux-stable/.config");

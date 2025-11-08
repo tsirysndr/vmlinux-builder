@@ -1,2 +1,3 @@
 linux-stable
 vmlinux-builder
+.config

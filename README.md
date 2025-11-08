@@ -34,19 +34,9 @@ Or follow the [official Deno installation guide](https://docs.deno.com/runtime/g
 
 ## 🚀 Usage
 
-Clone the repo and provide a kernel version:
 ```bash
-# Make the script executable
-chmod +x build.ts
-
-# Run with a kernel version
-./build.ts 6.16.y
-
-# Or run directly with Deno
-deno run --allow-run --allow-read --allow-write --allow-env --allow-net build.ts 6.16.y
+deno run -A jsr:@tsiry/vmlinux-builder 6.17.7
 ```
-
-**Note:** Ensure a valid `.config` file is present in the root directory before running.
 
 ### Supported Version Formats
 

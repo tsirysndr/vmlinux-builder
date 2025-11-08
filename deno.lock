@@ -1,8 +1,11 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@std/assert@1": "1.0.15",
+    "jsr:@std/assert@^1.0.15": "1.0.15",
+    "jsr:@std/collections@^1.1.3": "1.1.3",
     "jsr:@std/internal@^1.0.12": "1.0.12",
+    "jsr:@std/toml@^1.0.11": "1.0.11",
+    "jsr:@zod/zod@^4.1.12": "4.1.12",
     "npm:chalk@^5.6.2": "5.6.2"
   },
   "jsr": {
@@ -12,8 +15,20 @@
         "jsr:@std/internal"
       ]
     },
+    "@std/collections@1.1.3": {
+      "integrity": "bf8b0818886df6a32b64c7d3b037a425111f28278d69fd0995aeb62777c986b0"
+    },
     "@std/internal@1.0.12": {
       "integrity": "972a634fd5bc34b242024402972cd5143eac68d8dffaca5eaa4dba30ce17b027"
+    },
+    "@std/toml@1.0.11": {
+      "integrity": "e084988b872ca4bad6aedfb7350f6eeed0e8ba88e9ee5e1590621c5b5bb8f715",
+      "dependencies": [
+        "jsr:@std/collections"
+      ]
+    },
+    "@zod/zod@4.1.12": {
+      "integrity": "5876ed4c6d44673faf5120f0a461a2ada2eb6c735329d3ebaf5ba1fc08387695"
     }
   },
   "npm": {
@@ -23,7 +38,9 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@std/assert@1",
+      "jsr:@std/assert@^1.0.15",
+      "jsr:@std/toml@^1.0.11",
+      "jsr:@zod/zod@^4.1.12",
       "npm:chalk@^5.6.2"
     ]
   }
