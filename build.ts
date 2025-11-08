@@ -1,4 +1,5 @@
 #!/usr/bin/env -S deno run --allow-run --allow-read --allow-write --allow-env --allow-net
+import _ from "@es-toolkit/es-toolkit/compat";
 import chalk from "chalk";
 import cfg from "./default-config.ts";
 
@@ -78,10 +79,11 @@ if (!versionRegex.test(NUM)) {
 console.log(`Building vmlinux for Linux kernel ${chalk.cyan(NUM)}`);
 
 const hasAptGet = await runQuiet(["which", "apt-get"]);
+const hasSudo = await runQuiet(["which", "sudo"]);
 if (hasAptGet) {
   try {
     await run([
-      "sudo",
+      ..._.compact([hasSudo ? "sudo" : null]),
       "apt-get",
       "install",
       "-y",

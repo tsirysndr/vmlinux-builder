@@ -44,6 +44,12 @@ Or follow the [official Deno installation guide](https://docs.deno.com/runtime/g
 deno run -A jsr:@tsiry/vmlinux-builder 6.17.7
 ```
 
+Or with docker:
+
+```bash
+docker run --rm -it -v $(pwd):/app tsiry/vmlinux-builder:latest 6.17.7
+```
+
 ### Supported Version Formats
 
 - `6.1` - Major.Minor version
