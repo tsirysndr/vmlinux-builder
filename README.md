@@ -8,7 +8,6 @@
 ## ✨ Features
 
 - Builds any stable Linux kernel version (e.g., `6.1`, `6.1.12`, `6.1.y`)
-- Supports multiple architectures (x86_64, aarch64)
 - Enhanced kernel configuration handling with customizable options
 - Uses a custom `.config` for reproducible builds
 - Outputs a ready-to-use `vmlinux-X.Y-[arch]` file
