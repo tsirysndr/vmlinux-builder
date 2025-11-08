@@ -1,6 +1,7 @@
 # vmlinux-builder
 
 [![ci](https://github.com/tsirysndr/vmlinux-builder/actions/workflows/tests.yml/badge.svg)](https://github.com/tsirysndr/vmlinux-builder/actions/workflows/tests.yml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/tsiry/vmlinux-builder)](https://hub.docker.com/r/tsiry/vmlinux-builder)
 [![JSR](https://jsr.io/badges/@tsiry/vmlinux-builder)](https://jsr.io/@tsiry/vmlinux-builder)
 ![deno compatibility](https://shield.deno.dev/deno/^2.5.6)
 [![release](https://github.com/tsirysndr/vmlinux-builder/actions/workflows/ci.yml/badge.svg)](https://github.com/tsirysndr/vmlinux-builder/actions/workflows/ci.yml)
