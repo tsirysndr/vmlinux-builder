@@ -1,7 +1,7 @@
 // Deno native test runner
 // Run with: deno test --allow-read deno-test.ts
 
-import { assert, assertEquals, assertExists } from "@std/assert";
+import { assert, assertEquals, assertExists, assertThrows } from "@std/assert";
 import {
   KernelConfigDeserializer,
   KernelConfigParser,
@@ -355,4 +355,40 @@ Deno.test("extract security config", () => {
   const security = KernelConfigParser.extractSecurityConfig(config);
   assertEquals(security.SECURITY, true);
   assertEquals(security.SECURITY_SELINUX, true);
+});
+
+// ============================================================================
+// TOML RELATED TESTS
+// ============================================================================
+
+Deno.test("toTOML includes buildInfo and config section", () => {
+  const original = KernelConfigDeserializer.fromObject({
+    CONFIG_SMP: true,
+    CONFIG_NR_CPUS: 8,
+  });
+
+  const configWithBuild = {
+    ...original,
+    buildInfo: { compiler: "gcc 13.3.0" },
+  };
+
+  const tomlStr = KernelConfigSerializer.toTOML(configWithBuild as any);
+  // should contain top-level tables for buildInfo and config
+  assert(tomlStr.includes("buildInfo"));
+  assert(tomlStr.includes("config"));
+  assert(tomlStr.includes("gcc 13.3.0"));
+});
+
+Deno.test("fromTOML parses flat TOML keys", () => {
+  const tomlStr = `CONFIG_SMP = "y"\nCONFIG_NR_CPUS = 32`;
+  const parsed = KernelConfigDeserializer.fromTOML(tomlStr);
+  assertEquals(parsed.flatConfig.CONFIG_SMP, "y");
+  assertEquals(parsed.flatConfig.CONFIG_NR_CPUS, 32);
+});
+
+Deno.test("fromTOML throws on invalid TOML", () => {
+  const invalid = "this is not = valid toml =";
+  assertThrows(() => {
+    KernelConfigDeserializer.fromTOML(invalid);
+  });
 });
