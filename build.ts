@@ -131,17 +131,6 @@ if (!(await fileExists("linux-stable"))) {
     "linux-stable",
   ]);
 } else {
-  // Update existing checkout to the desired ref
-  await run([
-    "git",
-    "-C",
-    "linux-stable",
-    "fetch",
-    "--tags",
-    "--force",
-    "origin",
-  ]);
-
   // Shallow-fetch the specific ref (works for both branches and tags)
   try {
     await run([
@@ -151,18 +140,13 @@ if (!(await fileExists("linux-stable"))) {
       "fetch",
       "--depth=1",
       "origin",
-      `${REF}:${REF}`,
+      REF,
     ]);
   } catch {
-    await run([
-      "git",
-      "-C",
-      "linux-stable",
-      "fetch",
-      "origin",
-      `${REF}:${REF}`,
-    ]);
+    await run(["git", "-C", "linux-stable", "fetch", "origin", REF]);
   }
+
+  await run(["git", "-C", "linux-stable", "reset", "--hard", REF]);
 
   await run(["git", "-C", "linux-stable", "checkout", "-f", REF]);
 }
@@ -176,9 +160,12 @@ if (!(await Deno.stat(".config").catch(() => false))) {
   await Deno.writeTextFile(".config", cfg);
 }
 
-await Deno.copyFile(".config", "linux-stable/.config");
-
 Deno.chdir("linux-stable");
+
+await run(["rm", "-rf", "Documentation/Kbuild"]);
+await run(["make", "mrproper"]);
+
+await Deno.copyFile("../.config", ".config");
 
 const nproc = await getNproc();
 const makeProcess = new Deno.Command("make", {
