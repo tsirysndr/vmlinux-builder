@@ -1,6 +1,5 @@
-
-import cfg from "./.default-config" with { type: "text" };
-import { parseKernelConfigFile } from './config.ts';
+import { parseKernelConfigFile } from "./config.ts";
+import cfg from "./default-config.ts";
 
 const config = parseKernelConfigFile(cfg);
 

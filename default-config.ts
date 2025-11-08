@@ -1,4 +1,4 @@
-#
+export default `#
 # Automatically generated file; DO NOT EDIT.
 # Linux/x86 6.6.100 Kernel Configuration
 #
@@ -3577,3 +3577,4 @@ CONFIG_ARCH_USE_MEMTEST=y
 #
 # end of Rust hacking
 # end of Kernel hacking
+`;

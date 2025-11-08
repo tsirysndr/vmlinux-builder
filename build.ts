@@ -1,6 +1,6 @@
 #!/usr/bin/env -S deno run --allow-run --allow-read --allow-write --allow-env --allow-net
 import chalk from "chalk";
-import cfg from "./.default-config" with { type: "text" };
+import cfg from "./default-config.ts";
 
 export * from "./config.ts";
 
