@@ -150,11 +150,6 @@ if (!(await fileExists("linux-stable"))) {
 
   await run(["rm", "-rf", "Documentation/Kbuild"]);
   await run(["make", "mrproper"]);
-  await run([
-    "sh",
-    "-c",
-    "rm -rf include/uapi/linux/netfilter/xt_* include/uapi/linux/netfilter_ipv4/ipt_*.h include/uapi/linux/netfilter_ipv6/ip6t_*.h net/netfilter/xt_*.c rm -f tools/memory-model/litmus-tests",
-  ]);
 
   await run(["git", "checkout", "-f", REF]);
 
