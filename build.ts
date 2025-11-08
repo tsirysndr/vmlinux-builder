@@ -6,6 +6,7 @@ import cfg from "./default-config.ts";
 export * from "./config.ts";
 
 async function run(cmd: string[]): Promise<void> {
+  console.log(`Running: ${chalk.green(cmd.join(" "))}`);
   const process = new Deno.Command(cmd[0], {
     args: cmd.slice(1),
     stdout: "inherit",

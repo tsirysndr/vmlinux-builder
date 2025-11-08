@@ -24,4 +24,8 @@ RUN deno install
 
 COPY . .
 
-ENTRYPOINT ["./build.ts"]
+RUN deno compile -A -o vmlinux-builder ./build.ts
+
+RUN mv vmlinux-builder /usr/local/bin/vmlinux-builder
+
+ENTRYPOINT ["vmlinux-builder"]
