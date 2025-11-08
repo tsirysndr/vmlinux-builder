@@ -10,7 +10,9 @@ import z from "@zod/zod";
  */
 
 // Base config value types
-const ConfigValueSchema = z.union([
+const ConfigValueSchema: z.ZodType<
+  "y" | "m" | "n" | number | string | boolean
+> = z.union([
   z.literal("y"), // Built-in
   z.literal("m"), // Module
   z.literal("n"), // Not set (explicit)
@@ -20,7 +22,11 @@ const ConfigValueSchema = z.union([
 ]);
 
 // Individual config entry
-const ConfigEntrySchema = z.object({
+const ConfigEntrySchema: z.ZodType<{
+  key: string;
+  value?: z.infer<typeof ConfigValueSchema>;
+  comment?: string;
+}> = z.object({
   key: z.string(),
   value: ConfigValueSchema.optional(),
   comment: z.string().optional(),
@@ -42,7 +48,18 @@ const ConfigSectionSchema: z.ZodType<ConfigSection> = z.lazy(() =>
 );
 
 // Main kernel config schema
-export const KernelConfigSchema = z.object({
+export const KernelConfigSchema: z.ZodType<{
+  version?: string | undefined;
+  buildInfo?:
+    | {
+        compiler?: string | undefined;
+        gccVersion?: string | undefined;
+        buildSalt?: string | undefined;
+      }
+    | undefined;
+  sections: ConfigSection[];
+  flatConfig: Record<string, ConfigValue | undefined>;
+}> = z.object({
   version: z.string().optional(),
   buildInfo: z
     .object({
@@ -56,7 +73,15 @@ export const KernelConfigSchema = z.object({
 });
 
 // Specific schemas for common config categories
-export const ProcessorConfigSchema = z.object({
+export const ProcessorConfigSchema: z.ZodType<{
+  SMP?: boolean | undefined;
+  NR_CPUS?: number | undefined;
+  X86_64?: boolean | undefined;
+  NUMA?: boolean | undefined;
+  PREEMPT?: boolean | undefined;
+  PREEMPT_VOLUNTARY?: boolean | undefined;
+  PREEMPT_NONE?: boolean | undefined;
+}> = z.object({
   SMP: z.boolean().optional(),
   NR_CPUS: z.number().optional(),
   X86_64: z.boolean().optional(),
@@ -66,7 +91,15 @@ export const ProcessorConfigSchema = z.object({
   PREEMPT_NONE: z.boolean().optional(),
 });
 
-export const SecurityConfigSchema = z.object({
+export const SecurityConfigSchema: z.ZodType<{
+  SECURITY?: boolean | undefined;
+  SECURITY_SELINUX?: boolean | undefined;
+  SECURITY_APPARMOR?: boolean | undefined;
+  SECURITY_SMACK?: boolean | undefined;
+  SECCOMP?: boolean | undefined;
+  STACKPROTECTOR?: boolean | undefined;
+  FORTIFY_SOURCE?: boolean | undefined;
+}> = z.object({
   SECURITY: z.boolean().optional(),
   SECURITY_SELINUX: z.boolean().optional(),
   SECURITY_APPARMOR: z.boolean().optional(),
@@ -76,7 +109,14 @@ export const SecurityConfigSchema = z.object({
   FORTIFY_SOURCE: z.boolean().optional(),
 });
 
-export const NetworkingConfigSchema = z.object({
+export const NetworkingConfigSchema: z.ZodType<{
+  NET?: boolean | undefined;
+  INET?: boolean | undefined;
+  IPV6?: boolean | undefined;
+  NETFILTER?: boolean | undefined;
+  PACKET?: boolean | undefined;
+  UNIX?: boolean | undefined;
+}> = z.object({
   NET: z.boolean().optional(),
   INET: z.boolean().optional(),
   IPV6: z.boolean().optional(),
@@ -85,7 +125,13 @@ export const NetworkingConfigSchema = z.object({
   UNIX: z.boolean().optional(),
 });
 
-export const FilesystemConfigSchema = z.object({
+export const FilesystemConfigSchema: z.ZodType<{
+  EXT4_FS?: boolean | undefined;
+  XFS_FS?: boolean | undefined;
+  BTRFS_FS?: boolean | undefined;
+  NFS_FS?: boolean | undefined;
+  TMPFS?: boolean | undefined;
+}> = z.object({
   EXT4_FS: z.boolean().optional(),
   XFS_FS: z.boolean().optional(),
   BTRFS_FS: z.boolean().optional(),
@@ -753,7 +799,9 @@ export class KernelConfigSerializer {
   }
 }
 
-export const validateKernelConfig = (data: unknown) => {
+export const validateKernelConfig = (
+  data: unknown
+): ReturnType<typeof KernelConfigSchema.safeParse> => {
   return KernelConfigSchema.safeParse(data);
 };
 
