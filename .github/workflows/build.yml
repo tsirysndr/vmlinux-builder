@@ -1,0 +1,38 @@
+name: build
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Set TAG and VERSION
+        shell: bash
+        run: |
+          TAG=6.17.7
+
+          # VERSION=6.16 for 6.16.y, otherwise keep full tag (e.g. 6.16.2)
+          if [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.y$ ]]; then
+            VERSION="${TAG%.y}"
+          else
+            VERSION="$TAG"
+          fi
+
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "CPU_ARCH=$(uname -m)" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          ./build.ts $TAG
+          sha256sum linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }} > linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}.sha256
+
