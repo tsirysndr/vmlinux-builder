@@ -146,9 +146,19 @@ if (!(await fileExists("linux-stable"))) {
     await run(["git", "-C", "linux-stable", "fetch", "origin", REF]);
   }
 
-  await run(["git", "-C", "linux-stable", "reset", "--hard", REF]);
+  Deno.chdir("linux-stable");
 
-  await run(["git", "-C", "linux-stable", "checkout", "-f", REF]);
+  await run(["rm", "-rf", "Documentation/Kbuild"]);
+  await run(["make", "mrproper"]);
+  await run([
+    "sh",
+    "-c",
+    "rm -rf include/uapi/linux/netfilter/xt_* include/uapi/linux/netfilter_ipv4/ipt_*.h include/uapi/linux/netfilter_ipv6/ip6t_*.h net/netfilter/xt_*.c rm -f tools/memory-model/litmus-tests",
+  ]);
+
+  await run(["git", "checkout", "-f", REF]);
+
+  Deno.chdir("..");
 }
 
 if (!(await Deno.stat(".config").catch(() => false))) {
@@ -162,10 +172,9 @@ if (!(await Deno.stat(".config").catch(() => false))) {
 
 Deno.chdir("linux-stable");
 
-await run(["rm", "-rf", "Documentation/Kbuild"]);
-await run(["make", "mrproper"]);
-
 await Deno.copyFile("../.config", ".config");
+
+await run(["make", "prepare"]);
 
 const nproc = await getNproc();
 const makeProcess = new Deno.Command("make", {
