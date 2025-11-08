@@ -22,10 +22,7 @@ const ConfigValueSchema = z.union([
 // Individual config entry
 const ConfigEntrySchema = z.object({
   key: z.string(),
-  value: z.union([
-    ConfigValueSchema,
-    z.null(), // For commented out options (# CONFIG_* is not set)
-  ]),
+  value: ConfigValueSchema.optional(),
   comment: z.string().optional(),
 });
 
@@ -55,7 +52,7 @@ export const KernelConfigSchema = z.object({
     })
     .optional(),
   sections: z.array(ConfigSectionSchema),
-  flatConfig: z.record(z.string(), ConfigValueSchema.or(z.null())),
+  flatConfig: z.record(z.string(), ConfigValueSchema.optional()),
 });
 
 // Specific schemas for common config categories
@@ -114,9 +111,9 @@ export class KernelConfigParser {
    */
   static parse(content: string): KernelConfig {
     const lines = content.split("\n");
-    const flatConfig: Record<string, ConfigValue | null> = {};
+    const flatConfig: Record<string, ConfigValue | undefined> = {};
     const sections: ConfigSection[] = [];
-    let currentSection: ConfigSection | null = null;
+    let currentSection: ConfigSection | undefined = undefined;
     const sectionStack: ConfigSection[] = [];
 
     for (const line of lines) {
@@ -132,7 +129,7 @@ export class KernelConfigParser {
           // Check for section end
           if (sectionName.startsWith("end of")) {
             if (sectionStack.length > 0) {
-              currentSection = sectionStack.pop() || null;
+              currentSection = sectionStack.pop();
             }
             continue;
           }
@@ -164,11 +161,11 @@ export class KernelConfigParser {
       const disabledMatch = trimmed.match(/^#\s*(CONFIG_\w+)\s+is not set/);
       if (disabledMatch) {
         const key = disabledMatch[1];
-        flatConfig[key] = null;
+        flatConfig[key] = undefined;
 
         const entry: ConfigEntry = {
           key,
-          value: null,
+          value: undefined,
           comment: "is not set",
         };
 
@@ -286,8 +283,8 @@ export class KernelConfigParser {
   /**
    * Get a specific config value
    */
-  static getValue(config: KernelConfig, key: string): ConfigValue | null {
-    return config.flatConfig[key] ?? null;
+  static getValue(config: KernelConfig, key: string): ConfigValue | undefined {
+    return config.flatConfig[key];
   }
 
   /**
@@ -373,7 +370,7 @@ export class KernelConfigParser {
 
   private static serializeFlatConfig(
     lines: string[],
-    flatConfig: Record<string, ConfigValue | null>,
+    flatConfig: Record<string, ConfigValue | undefined>,
     opts: Required<SerializeOptions>
   ): void {
     const keys = opts.sortKeys
@@ -396,7 +393,7 @@ export class KernelConfigParser {
   ): void {
     const { key, value, comment } = entry;
 
-    if (value === null) {
+    if (!value) {
       lines.push(`# ${key} is not set`);
     } else if (value === "y" || value === "m" || value === "n") {
       lines.push(`${key}=${value}`);
@@ -522,7 +519,7 @@ export class KernelConfigDeserializer {
     try {
       const data = toml.parse(tomlString);
       return KernelConfigDeserializer.fromObject(
-        data as Record<string, string | number | boolean | null>
+        data as Record<string, string | number | boolean | undefined>
       );
     } catch (error) {
       throw new Error(`Failed to deserialize TOML: ${error}`);
@@ -532,15 +529,17 @@ export class KernelConfigDeserializer {
   /**
    * Deserialize from YAML-like format
    */
-  static fromObject(obj: Record<string, ConfigValue | null>): KernelConfig {
-    const flatConfig: Record<string, ConfigValue | null> = {};
+  static fromObject(
+    obj: Record<string, ConfigValue | undefined>
+  ): KernelConfig {
+    const flatConfig: Record<string, ConfigValue | undefined> = {};
 
     for (const [key, value] of Object.entries(obj)) {
       if (key.startsWith("CONFIG_")) {
         if (value === true) {
           flatConfig[key] = "y";
-        } else if (value === false || value === null) {
-          flatConfig[key] = null;
+        } else if (value === false || value === undefined) {
+          flatConfig[key] = undefined;
         } else if (value === "y" || value === "m" || value === "n") {
           flatConfig[key] = value;
         } else if (typeof value === "number" || typeof value === "string") {
@@ -594,15 +593,15 @@ export class KernelConfigSerializer {
   static toObject(
     config: KernelConfig,
     booleanStyle: boolean = false
-  ): Record<string, ConfigValue | null> {
-    const result: Record<string, ConfigValue | null> = {};
+  ): Record<string, ConfigValue | undefined> {
+    const result: Record<string, ConfigValue | undefined> = {};
 
     for (const [key, value] of Object.entries(config.flatConfig)) {
       if (booleanStyle) {
         // Convert y/n to true/false
         if (value === "y" || value === "m") {
           result[key] = true;
-        } else if (value === "n" || value === null) {
+        } else if (value === "n" || value === undefined) {
           result[key] = false;
         } else {
           result[key] = value;
@@ -704,7 +703,7 @@ export class KernelConfigSerializer {
     lines.push("");
 
     for (const [key, value] of Object.entries(config.flatConfig)) {
-      if (value === null) {
+      if (!value) {
         lines.push(`# ${key} is not set`);
       } else {
         const shellValue =

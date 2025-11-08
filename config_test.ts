@@ -76,7 +76,7 @@ Deno.test("parse string values", () => {
 
 Deno.test("parse disabled options", () => {
   const config = KernelConfigDeserializer.deserialize(simpleConfig);
-  assertEquals(config.flatConfig.CONFIG_DEBUG, null);
+  assertEquals(config.flatConfig.CONFIG_DEBUG, undefined);
 });
 
 Deno.test("parse hex values", () => {
@@ -95,7 +95,7 @@ Deno.test("deserialize from object", () => {
   const obj = { CONFIG_SMP: true, CONFIG_DEBUG: false };
   const config = KernelConfigDeserializer.fromObject(obj);
   assertEquals(config.flatConfig.CONFIG_SMP, "y");
-  assertEquals(config.flatConfig.CONFIG_DEBUG, null);
+  assertEquals(config.flatConfig.CONFIG_DEBUG, undefined);
 });
 
 Deno.test("handle empty config", () => {
@@ -330,7 +330,7 @@ Deno.test("getValue returns correct value", () => {
 Deno.test("getValue returns null for non-existent key", () => {
   const config = KernelConfigDeserializer.deserialize(simpleConfig);
   const value = KernelConfigParser.getValue(config, "CONFIG_NONEXISTENT");
-  assertEquals(value, null);
+  assertEquals(value, undefined);
 });
 
 Deno.test("isEnabled detects enabled options", () => {
