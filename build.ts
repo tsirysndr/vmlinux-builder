@@ -54,30 +54,116 @@ async function getNproc(): Promise<string> {
   return new TextDecoder().decode(stdout).trim();
 }
 
-const args = Deno.args;
+const rawArgs = Deno.args;
 
-if (args.length < 1) {
-  console.log(chalk.yellow(`Usage: $0 <kernel-version>{.y|.Z}`));
-  console.log("Example: ./build.sh 6.1 | 6.1.12 | 6.1.y | v6.1.12");
-  Deno.exit(1);
+// Parse optional flags:
+//   --repo <url>      clone from a custom git repository instead of linux-stable
+//   --branch <ref>    branch or tag to check out (required with --repo)
+//   --version <label> label used to name the output vmlinux file (optional)
+// Anything not matching a flag is treated as the positional kernel version.
+let repoInput: string | undefined;
+let branchInput: string | undefined;
+let versionLabel: string | undefined;
+const positional: string[] = [];
+
+for (let i = 0; i < rawArgs.length; i++) {
+  const arg = rawArgs[i];
+
+  const takeValue = (name: string): string => {
+    const eq = arg.indexOf("=");
+    if (eq !== -1) return arg.slice(eq + 1);
+    const next = rawArgs[i + 1];
+    if (next === undefined) {
+      console.log(chalk.yellow(`Error: missing value for ${name}`));
+      Deno.exit(1);
+    }
+    i++;
+    return next;
+  };
+
+  if (arg === "--repo" || arg.startsWith("--repo=")) {
+    repoInput = takeValue("--repo");
+  } else if (
+    arg === "--branch" ||
+    arg.startsWith("--branch=") ||
+    arg === "--ref" ||
+    arg.startsWith("--ref=")
+  ) {
+    branchInput = takeValue("--branch");
+  } else if (arg === "--version" || arg.startsWith("--version=")) {
+    versionLabel = takeValue("--version");
+  } else {
+    positional.push(arg);
+  }
 }
 
-const INPUT = args[0];
-const NUM = INPUT.startsWith("v") ? INPUT.slice(1) : INPUT; // normalize by stripping optional leading 'v'
+// Default upstream stable tree; overridden by --repo.
+let REPO_URL =
+  "git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git";
+let REF: string;
+let VERSION: string;
 
-// Validate: X.Y, X.Y.Z, or X.Y.y
-const versionRegex = /^[0-9]+\.[0-9]+(\.(y|[0-9]+))?$/;
-if (!versionRegex.test(NUM)) {
+if (repoInput) {
+  // Custom repository + branch/tag (e.g. an OrangePi/BSP kernel fork).
+  if (!branchInput) {
+    console.log(
+      chalk.yellow("Error: --branch is required when --repo is provided")
+    );
+    console.log(
+      "Example: ./build.ts --repo https://github.com/tsirysndr/linux-orangepi --branch orange-pi-6.6-sun60iw2"
+    );
+    Deno.exit(1);
+  }
+
+  REPO_URL = repoInput;
+  REF = branchInput;
+  // Name the artifact from --version, else the positional arg, else a
+  // filesystem-safe form of the branch name.
+  VERSION =
+    versionLabel ??
+    positional[0] ??
+    branchInput.replace(/[^A-Za-z0-9._-]+/g, "-");
+
   console.log(
-    chalk.yellow(
-      `Error: Invalid kernel version '${INPUT}'. Expected X.Y, X.Y.Z, or X.Y.y`
-    )
+    `Building vmlinux from ${chalk.cyan(REPO_URL)} @ ${chalk.cyan(REF)}`
   );
-  console.log("Examples: 6.1 | 6.1.12 | 6.1.y | v6.1.12");
-  Deno.exit(1);
-}
+} else {
+  // Default path: build a version from the upstream linux-stable tree.
+  if (positional.length < 1) {
+    console.log(chalk.yellow(`Usage: $0 <kernel-version>{.y|.Z}`));
+    console.log("Example: ./build.ts 6.1 | 6.1.12 | 6.1.y | v6.1.12");
+    console.log(
+      "Custom repo: ./build.ts --repo <git-url> --branch <branch> [--version <label>]"
+    );
+    Deno.exit(1);
+  }
 
-console.log(`Building vmlinux for Linux kernel ${chalk.cyan(NUM)}`);
+  const INPUT = positional[0];
+  const NUM = INPUT.startsWith("v") ? INPUT.slice(1) : INPUT; // normalize by stripping optional leading 'v'
+
+  // Validate: X.Y, X.Y.Z, or X.Y.y
+  const versionRegex = /^[0-9]+\.[0-9]+(\.(y|[0-9]+))?$/;
+  if (!versionRegex.test(NUM)) {
+    console.log(
+      chalk.yellow(
+        `Error: Invalid kernel version '${INPUT}'. Expected X.Y, X.Y.Z, or X.Y.y`
+      )
+    );
+    console.log("Examples: 6.1 | 6.1.12 | 6.1.y | v6.1.12");
+    Deno.exit(1);
+  }
+
+  console.log(`Building vmlinux for Linux kernel ${chalk.cyan(NUM)}`);
+
+  // Decide ref: maintenance branch vs tag
+  if (NUM.endsWith(".y")) {
+    REF = `linux-${NUM}`; // e.g. linux-6.16.y
+    VERSION = NUM.slice(0, -2); // e.g. 6.16
+  } else {
+    REF = `v${NUM}`; // e.g. v6.16.2 (ensure leading v)
+    VERSION = NUM; // e.g. 6.16.2 (no leading v)
+  }
+}
 
 const hasAptGet = await runQuiet(["which", "apt-get"]);
 const hasSudo = await runQuiet(["which", "sudo"]);
@@ -102,21 +188,6 @@ if (hasAptGet) {
   } catch {
     // Ignore errors
   }
-}
-
-const REPO_URL =
-  "git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-stable.git";
-
-// Decide ref: maintenance branch vs tag
-let REF: string;
-let VERSION: string;
-
-if (NUM.endsWith(".y")) {
-  REF = `linux-${NUM}`; // e.g. linux-6.16.y
-  VERSION = NUM.slice(0, -2); // e.g. 6.16
-} else {
-  REF = `v${NUM}`; // e.g. v6.16.2 (ensure leading v)
-  VERSION = NUM; // e.g. 6.16.2 (no leading v)
 }
 
 if (!(await fileExists("linux-stable"))) {

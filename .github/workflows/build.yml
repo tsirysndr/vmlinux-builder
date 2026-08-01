@@ -6,10 +6,60 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Kernel version to build (e.g. 6.17.7, 6.16.y). Ignored when a custom repo is provided."
+        required: false
+        default: "6.17.7"
+      repo:
+        description: "Optional custom kernel git repo URL (e.g. https://github.com/tsirysndr/linux-orangepi)"
+        required: false
+        default: ""
+      branch:
+        description: "Branch or tag to check out in the custom repo (e.g. orange-pi-6.6-sun60iw2). Required when repo is set."
+        required: false
+        default: ""
+      version:
+        description: "Optional label used to name the vmlinux artifact when building from a custom repo."
+        required: false
+        default: ""
+      arch:
+        description: "Architecture to build. 'both' builds x86_64 and aarch64 in parallel."
+        required: false
+        default: both
+        type: choice
+        options:
+          - both
+          - x86_64
+          - aarch64
 
 jobs:
-  compile:
+  setup:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - name: Compute build matrix
+        id: set
+        shell: bash
+        env:
+          # Empty for push/PR -> falls through to the 'both' default.
+          ARCH: ${{ github.event.inputs.arch }}
+        run: |
+          case "$ARCH" in
+            x86_64)  MATRIX='{"os":["ubuntu-latest"]}' ;;
+            aarch64) MATRIX='{"os":["ubuntu-22.04-arm"]}' ;;
+            *)       MATRIX='{"os":["ubuntu-latest","ubuntu-22.04-arm"]}' ;;
+          esac
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  compile:
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v2
@@ -17,22 +67,59 @@ jobs:
           deno-version: v2.x
       - name: Set TAG and VERSION
         shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_REPO: ${{ github.event.inputs.repo }}
+          INPUT_BRANCH: ${{ github.event.inputs.branch }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          TAG=6.17.7
+          REPO="${INPUT_REPO}"
+          BRANCH="${INPUT_BRANCH}"
+          TAG="${INPUT_TAG:-6.17.7}"
 
-          # VERSION=6.16 for 6.16.y, otherwise keep full tag (e.g. 6.16.2)
-          if [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.y$ ]]; then
-            VERSION="${TAG%.y}"
+          if [[ -n "$REPO" ]]; then
+            if [[ -z "$BRANCH" ]]; then
+              echo "::error::'branch' is required when 'repo' is provided"
+              exit 1
+            fi
+
+            # Version label for naming: input override, else sanitized branch name
+            if [[ -n "$INPUT_VERSION" ]]; then
+              VERSION="$INPUT_VERSION"
+            else
+              VERSION="$(echo "$BRANCH" | sed 's/[^A-Za-z0-9._-]\+/-/g')"
+            fi
+
+            echo "REPO=$REPO" >> "$GITHUB_ENV"
+            echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
           else
-            VERSION="$TAG"
+            # VERSION=6.16 for 6.16.y, otherwise keep full tag (e.g. 6.16.2)
+            if [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.y$ ]]; then
+              VERSION="${TAG%.y}"
+            else
+              VERSION="$TAG"
+            fi
+
+            echo "TAG=$TAG" >> "$GITHUB_ENV"
           fi
 
-          echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "CPU_ARCH=$(uname -m)" >> "$GITHUB_ENV"
 
       - name: Build
         run: |
-          ./build.ts $TAG
+          if [[ -n "$REPO" ]]; then
+            ./build.ts --repo "$REPO" --branch "$BRANCH" --version "$VERSION"
+          else
+            ./build.ts "$TAG"
+          fi
           sha256sum linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }} > linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}.sha256
 
+      - name: Upload artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}
+          path: |
+            linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}
+            linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}.sha256
