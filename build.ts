@@ -306,10 +306,20 @@ if (defconfigInput) {
     "board.config",
   ]);
 
-  // Older BSP trees often fail to build with modern GCC when warnings are
-  // fatal; force CONFIG_WERROR off (appended last so olddefconfig honors it).
+  // Forced overrides appended last so `olddefconfig` honors them:
+  //  - CONFIG_WERROR off: older BSP code trips -Werror on modern GCC.
+  //  - CONFIG_PM_DEVFREQ on: the Allwinner DMC devfreq driver
+  //    (CONFIG_AW_DMC_DEVFREQ) `select`s PM_DEVFREQ_EVENT without enabling the
+  //    devfreq core, which makes include/linux/devfreq.h emit stub inlines that
+  //    clash with drivers/devfreq/governor.h (redefinition of
+  //    devfreq_update_stats + implicit update_devfreq). Enabling the core fixes
+  //    both. Harmless when the tree/driver isn't present.
+  const forced = [
+    "# CONFIG_WERROR is not set",
+    "CONFIG_PM_DEVFREQ=y",
+  ].join("\n");
   const merged = await Deno.readTextFile(".config");
-  await Deno.writeTextFile(".config", `${merged}\n# CONFIG_WERROR is not set\n`);
+  await Deno.writeTextFile(".config", `${merged}\n${forced}\n`);
 
   // Normalize against this tree's Kconfig.
   await run(["make", "olddefconfig"]);
