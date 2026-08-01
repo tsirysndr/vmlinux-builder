@@ -37,6 +37,11 @@ on:
           - both
           - x86_64
           - aarch64
+      initrd:
+        description: "Also generate an initrd (and a U-Boot uInitrd on arm64)."
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   setup:
@@ -77,12 +82,14 @@ jobs:
           INPUT_BRANCH: ${{ github.event.inputs.branch }}
           INPUT_VERSION: ${{ github.event.inputs.version }}
           INPUT_CONFIG: ${{ github.event.inputs.config }}
+          INPUT_INITRD: ${{ github.event.inputs.initrd }}
         run: |
           REPO="${INPUT_REPO}"
           BRANCH="${INPUT_BRANCH}"
           TAG="${INPUT_TAG:-6.17.7}"
 
           echo "MERGE_CONFIG=${INPUT_CONFIG}" >> "$GITHUB_ENV"
+          echo "GEN_INITRD=${INPUT_INITRD}" >> "$GITHUB_ENV"
 
           if [[ -n "$REPO" ]]; then
             if [[ -z "$BRANCH" ]]; then
@@ -115,15 +122,18 @@ jobs:
 
       - name: Build
         run: |
-          MERGE_ARGS=()
+          EXTRA_ARGS=()
           if [[ -n "$MERGE_CONFIG" ]]; then
-            MERGE_ARGS=(--merge-config "$MERGE_CONFIG")
+            EXTRA_ARGS+=(--merge-config "$MERGE_CONFIG")
+          fi
+          if [[ "$GEN_INITRD" == "true" ]]; then
+            EXTRA_ARGS+=(--initrd)
           fi
 
           if [[ -n "$REPO" ]]; then
-            ./build.ts --repo "$REPO" --branch "$BRANCH" --version "$VERSION" "${MERGE_ARGS[@]}"
+            ./build.ts --repo "$REPO" --branch "$BRANCH" --version "$VERSION" "${EXTRA_ARGS[@]}"
           else
-            ./build.ts "$TAG" "${MERGE_ARGS[@]}"
+            ./build.ts "$TAG" "${EXTRA_ARGS[@]}"
           fi
           sha256sum linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }} > linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}.sha256
 
@@ -165,3 +175,13 @@ jobs:
           path: |
             linux-stable/uImage
             linux-stable/uImage.sha256
+
+      - name: Upload initrd
+        if: github.event_name == 'workflow_dispatch' && env.GEN_INITRD == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: initrd-${{ env.VERSION }}.${{ env.CPU_ARCH }}
+          if-no-files-found: warn
+          path: |
+            linux-stable/initrd.img-*
+            linux-stable/uInitrd

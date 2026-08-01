@@ -54,6 +54,16 @@ async function getNproc(): Promise<string> {
   return new TextDecoder().decode(stdout).trim();
 }
 
+async function capture(cmd: string[]): Promise<string> {
+  const process = new Deno.Command(cmd[0], {
+    args: cmd.slice(1),
+    stdout: "piped",
+    stderr: "null",
+  });
+  const { stdout } = await process.output();
+  return new TextDecoder().decode(stdout).trim();
+}
+
 const rawArgs = Deno.args;
 
 // Parse optional flags:
@@ -64,11 +74,14 @@ const rawArgs = Deno.args;
 //                         default config is appended last so it overrides on
 //                         conflicts. <src> is an http(s) URL or a file resolved
 //                         at the kernel tree root (e.g. .config or a defconfig).
+//   --initrd              also generate an initrd (initrd.img) and, on arm64,
+//                         a U-Boot uInitrd alongside the kernel.
 // Anything not matching a flag is treated as the positional kernel version.
 let repoInput: string | undefined;
 let branchInput: string | undefined;
 let versionLabel: string | undefined;
 let mergeConfigInput: string | undefined;
+let genInitrd = false;
 const positional: string[] = [];
 
 for (let i = 0; i < rawArgs.length; i++) {
@@ -104,6 +117,8 @@ for (let i = 0; i < rawArgs.length; i++) {
     arg.startsWith("--config=")
   ) {
     mergeConfigInput = takeValue("--merge-config");
+  } else if (arg === "--initrd") {
+    genInitrd = true;
   } else {
     positional.push(arg);
   }
@@ -340,5 +355,69 @@ const cwd = Deno.cwd();
 console.log(
   `You can find the vmlinux file in ${chalk.cyan(`${cwd}/${VMLINUX}.${arch}`)}`
 );
+
+// Optionally generate an initrd (and a U-Boot uInitrd on arm64).
+if (genInitrd) {
+  console.log(chalk.magenta("Generating initrd..."));
+
+  // Tools: mkinitramfs (initramfs-tools) and, for uInitrd, mkimage (u-boot-tools).
+  if (hasAptGet) {
+    try {
+      await run([
+        ..._.compact([hasSudo ? "sudo" : null]),
+        "apt-get",
+        "install",
+        "-y",
+        "initramfs-tools",
+        "u-boot-tools",
+      ]);
+    } catch {
+      // Ignore errors; the commands below will surface a clearer failure.
+    }
+  }
+
+  // Resolve this tree's kernel release string (e.g. 6.6.98-sun60iw2).
+  const krel = await capture(["make", "-s", "kernelrelease"]);
+
+  // Install the freshly built modules so mkinitramfs can find them for $krel.
+  await run([..._.compact([hasSudo ? "sudo" : null]), "make", "modules_install"]);
+
+  // Build the initrd for this kernel release.
+  const INITRD = `initrd.img-${krel}`;
+  await run([
+    ..._.compact([hasSudo ? "sudo" : null]),
+    "mkinitramfs",
+    "-o",
+    INITRD,
+    krel,
+  ]);
+
+  console.log(
+    chalk.green(`initrd built: ${chalk.cyan(`${cwd}/${INITRD}`)}`)
+  );
+
+  // uInitrd is the U-Boot ramdisk form; only meaningful on arm64 boards.
+  if (arch === "aarch64" || arch === "arm64") {
+    await run([
+      "mkimage",
+      "-A",
+      "arm64",
+      "-O",
+      "linux",
+      "-T",
+      "ramdisk",
+      "-C",
+      "gzip",
+      "-n",
+      `uInitrd ${krel}`,
+      "-d",
+      INITRD,
+      "uInitrd",
+    ]);
+    console.log(
+      chalk.green(`uInitrd built: ${chalk.cyan(`${cwd}/uInitrd`)}`)
+    );
+  }
+}
 
 Deno.exit(0);
