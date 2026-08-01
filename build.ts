@@ -71,9 +71,10 @@ const rawArgs = Deno.args;
 //   --branch <ref>        branch or tag to check out (required with --repo)
 //   --version <label>     label used to name the output vmlinux file (optional)
 //   --merge-config <src>  existing config to merge with the default config; the
-//                         default config is appended last so it overrides on
-//                         conflicts. <src> is an http(s) URL or a file resolved
-//                         at the kernel tree root (e.g. .config or a defconfig).
+//                         provided config is appended last so it overrides on
+//                         conflicts (the default only fills gaps). <src> is an
+//                         http(s) URL or a file resolved at the kernel tree root
+//                         (e.g. .config or config-6.6.98-sun60iw2).
 //   --initrd              also generate an initrd (initrd.img) and, on arm64,
 //                         a U-Boot uInitrd alongside the kernel.
 //   --defconfig <name>    build a board/BSP kernel: run `make <name>` (e.g.
@@ -214,7 +215,7 @@ if (mergeConfigInput) {
     chalk.magenta(
       `Merge config detected: ${chalk.cyan(
         mergeConfigInput
-      )} — it will be merged with the default config (default overrides on conflicts).`
+      )} — it will be merged with the default config (provided config overrides on conflicts).`
     )
   );
 }
@@ -317,8 +318,9 @@ if (defconfigInput) {
   await run(["make", "olddefconfig"]);
 } else if (mergeConfigInput) {
   // Merge an existing config with the default config. We simply concatenate,
-  // putting the default config LAST so it overrides the existing config on
-  // conflicting symbols (kconfig keeps the last assignment when reading).
+  // putting the provided config LAST so it overrides the default on conflicting
+  // symbols (kconfig keeps the last assignment when reading). The default only
+  // fills in symbols the provided config doesn't set.
   Deno.chdir("linux-stable");
 
   let existing: string;
@@ -338,14 +340,15 @@ if (defconfigInput) {
     existing = await resp.text();
   } else {
     // Resolved at the kernel tree root (cwd is linux-stable), e.g. ".config"
-    // or "arch/arm64/configs/sun60iw2_defconfig".
+    // or "config-6.6.98-sun60iw2".
     console.log(
-      `Merging existing config ${chalk.cyan(mergeConfigInput)} with default config (default overrides)`
+      `Merging existing config ${chalk.cyan(mergeConfigInput)} with default config (provided config overrides)`
     );
     existing = await Deno.readTextFile(mergeConfigInput);
   }
 
-  await Deno.writeTextFile(".config", `${existing}\n${cfg}\n`);
+  // Provided config LAST so it wins over the default on conflicting symbols.
+  await Deno.writeTextFile(".config", `${cfg}\n${existing}\n`);
 
   // Normalize the merged config against this tree's Kconfig (fills in new
   // symbols with their defaults, drops symbols that don't apply).

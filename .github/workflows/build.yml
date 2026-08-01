@@ -25,7 +25,7 @@ on:
         required: false
         default: ""
       config:
-        description: "Optional existing config to merge with the default config (default overrides). A file at the kernel tree root (e.g. .config or arch/arm64/configs/sun60iw2_defconfig) or an http(s) URL."
+        description: "Optional existing config to merge with the default config (your config overrides; default only fills gaps). A file at the kernel tree root (e.g. config-6.6.98-sun60iw2) or an http(s) URL."
         required: false
         default: ""
       defconfig:
