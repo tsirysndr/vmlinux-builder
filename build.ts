@@ -433,15 +433,18 @@ if (genInitrd) {
   // Resolve this tree's kernel release string (e.g. 6.6.98-sun60iw2).
   const krel = await capture(["make", "-s", "kernelrelease"]);
 
-  const configText = await Deno.readTextFile(".config");
-if (configText.includes("CONFIG_MODULES=y")) {
-  await run(["make", "modules", `-j${nproc}`]);
-  await run([..._.compact([hasSudo ? "sudo" : null]), "make", "modules_install"]);
-}
+  const hasModules = configText.includes("CONFIG_MODULES=y");
 
+  if (hasModules) {
+    // `make vmlinux` never builds modules — build them now.
+    await run(["make", "modules", `-j${nproc}`]);
 
-  // Install the freshly built modules so mkinitramfs can find them for $krel.
-  await run([..._.compact([hasSudo ? "sudo" : null]), "make", "modules_install",`INSTALL_MOD_PATH=${cwd}/modules-out`]);
+    // System install so mkinitramfs can find them under /lib/modules/<krel>.
+    await run([..._.compact([hasSudo ? "sudo" : null]), "make", "modules_install"]);
+
+    // Staged copy for the board rootfs artifact (no sudo needed).
+    await run(["make", "modules_install", `INSTALL_MOD_PATH=${cwd}/modules-out`]);
+  }
 
 if (!hasModules) {
     await run([..._.compact([hasSudo ? "sudo" : null]),
