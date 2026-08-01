@@ -46,6 +46,10 @@ on:
         required: false
         default: false
         type: boolean
+      uimage_args:
+        description: "mkimage/uImage flags passed to build.ts on arm64 (empty = skip uImage). Defaults reproduce the previous hardcoded values; override any --uimage-* flag here."
+        required: false
+        default: "--uimage --uimage-arch arm --uimage-os linux --uimage-type kernel --uimage-comp none --uimage-load 0x41000000 --uimage-entry 0x41000000"
 
 jobs:
   setup:
@@ -88,6 +92,7 @@ jobs:
           INPUT_CONFIG: ${{ github.event.inputs.config }}
           INPUT_DEFCONFIG: ${{ github.event.inputs.defconfig }}
           INPUT_INITRD: ${{ github.event.inputs.initrd }}
+          INPUT_UIMAGE_ARGS: ${{ github.event.inputs.uimage_args }}
         run: |
           REPO="${INPUT_REPO}"
           BRANCH="${INPUT_BRANCH}"
@@ -96,6 +101,7 @@ jobs:
           echo "MERGE_CONFIG=${INPUT_CONFIG}" >> "$GITHUB_ENV"
           echo "DEFCONFIG=${INPUT_DEFCONFIG}" >> "$GITHUB_ENV"
           echo "GEN_INITRD=${INPUT_INITRD}" >> "$GITHUB_ENV"
+          echo "UIMAGE_ARGS=${INPUT_UIMAGE_ARGS}" >> "$GITHUB_ENV"
 
           if [[ -n "$REPO" ]]; then
             if [[ -z "$BRANCH" ]]; then
@@ -138,6 +144,10 @@ jobs:
           if [[ "$GEN_INITRD" == "true" ]]; then
             EXTRA_ARGS+=(--initrd)
           fi
+          # uImage generation is arm64-only; word-split the flag string.
+          if [[ "$CPU_ARCH" == "aarch64" && -n "$UIMAGE_ARGS" ]]; then
+            EXTRA_ARGS+=($UIMAGE_ARGS)
+          fi
 
           if [[ -n "$REPO" ]]; then
             ./build.ts --repo "$REPO" --branch "$BRANCH" --version "$VERSION" "${EXTRA_ARGS[@]}"
@@ -145,27 +155,6 @@ jobs:
             ./build.ts "$TAG" "${EXTRA_ARGS[@]}"
           fi
           sha256sum linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }} > linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}.sha256
-
-      - name: Generate uImage (arm64 only)
-        if: env.CPU_ARCH == 'aarch64'
-        working-directory: linux-stable
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y u-boot-tools
-
-          # Build the arm64 boot Image (native build, no cross toolchain needed)
-          make Image -j"$(nproc)"
-
-          gzip -9 -k arch/arm64/boot/Image        # optional compression
-
-          # Use the tree's own release string for the image name
-          KREL="$(make -s kernelrelease)"
-          mkimage -A arm64 -O linux -T kernel -C gzip \
-              -a 0x40080000 -e 0x40080000 \
-              -n "Linux ${KREL}" \
-              -d arch/arm64/boot/Image.gz uImage
-
-          sha256sum uImage > uImage.sha256
 
       - name: Upload artifact
         if: github.event_name == 'workflow_dispatch'

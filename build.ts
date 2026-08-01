@@ -81,6 +81,16 @@ const rawArgs = Deno.args;
 //                         sun60iw2_defconfig) as the base config so the board's
 //                         essentials WIN, then layer our default config as a
 //                         lower-priority fragment. CONFIG_WERROR is forced off.
+//   --uimage              on arm64, build the boot Image and wrap it as a
+//                         U-Boot uImage. The mkimage parameters below are all
+//                         optional and default to the values shown:
+//     --uimage-arch <a>     mkimage -A architecture (default: arm)
+//     --uimage-os <o>       mkimage -O os          (default: linux)
+//     --uimage-type <t>     mkimage -T type        (default: kernel)
+//     --uimage-comp <c>     mkimage -C compression (default: none; gzip compresses Image)
+//     --uimage-load <addr>  mkimage -a load address (default: 0x41000000)
+//     --uimage-entry <addr> mkimage -e entry point  (default: 0x41000000)
+//     --uimage-name <name>  mkimage -n image name   (default: "Linux <kernelrelease>")
 // Anything not matching a flag is treated as the positional kernel version.
 let repoInput: string | undefined;
 let branchInput: string | undefined;
@@ -88,6 +98,14 @@ let versionLabel: string | undefined;
 let mergeConfigInput: string | undefined;
 let defconfigInput: string | undefined;
 let genInitrd = false;
+let genUimage = false;
+let uimageArch = "arm";
+let uimageOs = "linux";
+let uimageType = "kernel";
+let uimageComp = "none";
+let uimageLoad = "0x41000000";
+let uimageEntry = "0x41000000";
+let uimageName: string | undefined;
 const positional: string[] = [];
 
 for (let i = 0; i < rawArgs.length; i++) {
@@ -127,6 +145,22 @@ for (let i = 0; i < rawArgs.length; i++) {
     defconfigInput = takeValue("--defconfig");
   } else if (arg === "--initrd") {
     genInitrd = true;
+  } else if (arg === "--uimage") {
+    genUimage = true;
+  } else if (arg === "--uimage-arch" || arg.startsWith("--uimage-arch=")) {
+    uimageArch = takeValue("--uimage-arch");
+  } else if (arg === "--uimage-os" || arg.startsWith("--uimage-os=")) {
+    uimageOs = takeValue("--uimage-os");
+  } else if (arg === "--uimage-type" || arg.startsWith("--uimage-type=")) {
+    uimageType = takeValue("--uimage-type");
+  } else if (arg === "--uimage-comp" || arg.startsWith("--uimage-comp=")) {
+    uimageComp = takeValue("--uimage-comp");
+  } else if (arg === "--uimage-load" || arg.startsWith("--uimage-load=")) {
+    uimageLoad = takeValue("--uimage-load");
+  } else if (arg === "--uimage-entry" || arg.startsWith("--uimage-entry=")) {
+    uimageEntry = takeValue("--uimage-entry");
+  } else if (arg === "--uimage-name" || arg.startsWith("--uimage-name=")) {
+    uimageName = takeValue("--uimage-name");
   } else {
     positional.push(arg);
   }
@@ -409,6 +443,75 @@ const cwd = Deno.cwd();
 console.log(
   `You can find the vmlinux file in ${chalk.cyan(`${cwd}/${VMLINUX}.${arch}`)}`
 );
+
+// Optionally build the arm64 boot Image and wrap it as a U-Boot uImage.
+// All mkimage parameters come from the --uimage-* flags (with defaults).
+if (genUimage) {
+  if (arch === "aarch64" || arch === "arm64") {
+    console.log(chalk.magenta("Generating uImage..."));
+
+    // mkimage lives in u-boot-tools.
+    if (hasAptGet) {
+      try {
+        await run([
+          ..._.compact([hasSudo ? "sudo" : null]),
+          "apt-get",
+          "install",
+          "-y",
+          "u-boot-tools",
+        ]);
+      } catch {
+        // Ignore; mkimage below will surface a clearer failure.
+      }
+    }
+
+    // Build the arm64 boot Image (native build, no cross toolchain needed).
+    await run(["make", "Image", `-j${nproc}`]);
+
+    // Compress the Image only when uImage compression is gzip.
+    let imageSrc = "arch/arm64/boot/Image";
+    if (uimageComp === "gzip") {
+      await run(["gzip", "-9", "-k", "-f", "arch/arm64/boot/Image"]);
+      imageSrc = "arch/arm64/boot/Image.gz";
+    }
+
+    // Default the image name to this tree's kernel release string.
+    const krel = await capture(["make", "-s", "kernelrelease"]);
+    const imageName = uimageName ?? `Linux ${krel}`;
+
+    await run([
+      "mkimage",
+      "-A",
+      uimageArch,
+      "-O",
+      uimageOs,
+      "-T",
+      uimageType,
+      "-C",
+      uimageComp,
+      "-a",
+      uimageLoad,
+      "-e",
+      uimageEntry,
+      "-n",
+      imageName,
+      "-d",
+      imageSrc,
+      "uImage",
+    ]);
+
+    const sum = await capture(["sha256sum", "uImage"]);
+    await Deno.writeTextFile("uImage.sha256", `${sum}\n`);
+
+    console.log(chalk.green(`uImage built: ${chalk.cyan(`${cwd}/uImage`)}`));
+  } else {
+    console.log(
+      chalk.yellow(
+        `--uimage requested but arch is ${arch} (not arm64); skipping uImage.`
+      )
+    );
+  }
+}
 
 // Optionally generate an initrd (and a U-Boot uInitrd on arm64).
 if (genInitrd) {
