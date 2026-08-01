@@ -46,6 +46,11 @@ on:
         required: false
         default: false
         type: boolean
+      modules:
+        description: "Also build and archive lib/modules as modules-<release>.tar.gz (when CONFIG_MODULES=y)."
+        required: false
+        default: false
+        type: boolean
       uimage_args:
         description: "mkimage/uImage flags passed to build.ts on arm64 (empty = skip uImage). Defaults reproduce the previous hardcoded values; override any --uimage-* flag here."
         required: false
@@ -92,6 +97,7 @@ jobs:
           INPUT_CONFIG: ${{ github.event.inputs.config }}
           INPUT_DEFCONFIG: ${{ github.event.inputs.defconfig }}
           INPUT_INITRD: ${{ github.event.inputs.initrd }}
+          INPUT_MODULES: ${{ github.event.inputs.modules }}
           INPUT_UIMAGE_ARGS: ${{ github.event.inputs.uimage_args }}
         run: |
           REPO="${INPUT_REPO}"
@@ -101,6 +107,7 @@ jobs:
           echo "MERGE_CONFIG=${INPUT_CONFIG}" >> "$GITHUB_ENV"
           echo "DEFCONFIG=${INPUT_DEFCONFIG}" >> "$GITHUB_ENV"
           echo "GEN_INITRD=${INPUT_INITRD}" >> "$GITHUB_ENV"
+          echo "GEN_MODULES=${INPUT_MODULES}" >> "$GITHUB_ENV"
           echo "UIMAGE_ARGS=${INPUT_UIMAGE_ARGS}" >> "$GITHUB_ENV"
 
           if [[ -n "$REPO" ]]; then
@@ -143,6 +150,9 @@ jobs:
           fi
           if [[ "$GEN_INITRD" == "true" ]]; then
             EXTRA_ARGS+=(--initrd)
+          fi
+          if [[ "$GEN_MODULES" == "true" ]]; then
+            EXTRA_ARGS+=(--modules)
           fi
           # uImage generation is arm64-only; word-split the flag string.
           if [[ "$CPU_ARCH" == "aarch64" && -n "$UIMAGE_ARGS" ]]; then
@@ -192,3 +202,13 @@ jobs:
           path: |
             linux-stable/initrd.img-*
             linux-stable/uInitrd
+
+      - name: Upload modules
+        if: github.event_name == 'workflow_dispatch' && env.GEN_MODULES == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: modules-${{ env.VERSION }}.${{ env.CPU_ARCH }}
+          if-no-files-found: warn
+          path: |
+            linux-stable/modules-*.tar.gz
+            linux-stable/modules-*.tar.gz.sha256

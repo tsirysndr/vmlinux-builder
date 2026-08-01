@@ -77,6 +77,9 @@ const rawArgs = Deno.args;
 //                         (e.g. .config or config-6.6.98-sun60iw2).
 //   --initrd              also generate an initrd (initrd.img) and, on arm64,
 //                         a U-Boot uInitrd alongside the kernel.
+//   --modules             build the loadable modules and archive the staged
+//                         lib/modules/<release> tree as modules-<release>.tar.gz
+//                         (no-op when the config has no CONFIG_MODULES=y).
 //   --defconfig <name>    build a board/BSP kernel: run `make <name>` (e.g.
 //                         sun60iw2_defconfig) as the base config so the board's
 //                         essentials WIN, then layer our default config as a
@@ -98,6 +101,7 @@ let versionLabel: string | undefined;
 let mergeConfigInput: string | undefined;
 let defconfigInput: string | undefined;
 let genInitrd = false;
+let genModules = false;
 let genUimage = false;
 let uimageArch = "arm";
 let uimageOs = "linux";
@@ -145,6 +149,8 @@ for (let i = 0; i < rawArgs.length; i++) {
     defconfigInput = takeValue("--defconfig");
   } else if (arg === "--initrd") {
     genInitrd = true;
+  } else if (arg === "--modules") {
+    genModules = true;
   } else if (arg === "--uimage") {
     genUimage = true;
   } else if (arg === "--uimage-arch" || arg.startsWith("--uimage-arch=")) {
@@ -606,6 +612,50 @@ if (!hasModules) {
     ]);
     console.log(
       chalk.green(`uInitrd built: ${chalk.cyan(`${cwd}/uInitrd`)}`)
+    );
+  }
+}
+
+// Optionally archive the loadable modules (lib/modules/<release>) for the
+// board rootfs. Modules aren't part of vmlinux/Image, so ship them separately.
+if (genModules) {
+  const configText = await Deno.readTextFile(".config");
+  const hasModules = configText.includes("CONFIG_MODULES=y");
+
+  if (!hasModules) {
+    console.log(
+      chalk.yellow("--modules requested but CONFIG_MODULES is not enabled; skipping.")
+    );
+  } else {
+    console.log(chalk.magenta("Archiving lib/modules..."));
+
+    const krel = await capture(["make", "-s", "kernelrelease"]);
+
+    // Build + stage into modules-out/ (idempotent — a no-op if --initrd
+    // already staged them). Staged (not system) install needs no sudo.
+    await run(["make", "modules", `-j${nproc}`]);
+    await run(["make", "modules_install", `INSTALL_MOD_PATH=${cwd}/modules-out`]);
+
+    // Archive the lib/modules/<release> subtree. The build/source symlinks in
+    // it point back into the tree; --dereference would pull the whole kernel
+    // tree in, so drop them instead.
+    const MODULES_TGZ = `modules-${krel}.tar.gz`;
+    await run([
+      "tar",
+      "--exclude=build",
+      "--exclude=source",
+      "-czf",
+      MODULES_TGZ,
+      "-C",
+      "modules-out",
+      "lib/modules",
+    ]);
+
+    const modSum = await capture(["sha256sum", MODULES_TGZ]);
+    await Deno.writeTextFile(`${MODULES_TGZ}.sha256`, `${modSum}\n`);
+
+    console.log(
+      chalk.green(`modules archived: ${chalk.cyan(`${cwd}/${MODULES_TGZ}`)}`)
     );
   }
 }
