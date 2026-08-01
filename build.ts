@@ -444,6 +444,23 @@ console.log(
   `You can find the vmlinux file in ${chalk.cyan(`${cwd}/${VMLINUX}.${arch}`)}`
 );
 
+// On arm64, also emit the raw bootable Image (arch/arm64/boot/Image). This is
+// the objcopy'd binary the board actually boots (what `/boot/vmlinux-*` is on
+// an OrangePi), as opposed to the large ELF `vmlinux` above.
+if (arch === "aarch64" || arch === "arm64") {
+  await run(["make", "Image", `-j${nproc}`]);
+
+  const IMAGE = `Image-${VERSION}.${arch}`;
+  await Deno.copyFile("arch/arm64/boot/Image", IMAGE);
+
+  const imageSum = await capture(["sha256sum", IMAGE]);
+  await Deno.writeTextFile(`${IMAGE}.sha256`, `${imageSum}\n`);
+
+  console.log(
+    chalk.green(`boot Image built: ${chalk.cyan(`${cwd}/${IMAGE}`)}`)
+  );
+}
+
 // Optionally build the arm64 boot Image and wrap it as a U-Boot uImage.
 // All mkimage parameters come from the --uimage-* flags (with defaults).
 if (genUimage) {

@@ -165,6 +165,15 @@ jobs:
             linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}
             linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}.sha256
 
+      - name: Upload boot Image (arm64 only)
+        if: github.event_name == 'workflow_dispatch' && env.CPU_ARCH == 'aarch64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Image-${{ env.VERSION }}.${{ env.CPU_ARCH }}
+          path: |
+            linux-stable/Image-${{ env.VERSION }}.${{ env.CPU_ARCH }}
+            linux-stable/Image-${{ env.VERSION }}.${{ env.CPU_ARCH }}.sha256
+
       - name: Upload uImage (arm64 only)
         if: github.event_name == 'workflow_dispatch' && env.CPU_ARCH == 'aarch64'
         uses: actions/upload-artifact@v4
