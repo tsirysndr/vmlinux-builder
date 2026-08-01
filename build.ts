@@ -433,6 +433,7 @@ if (genInitrd) {
   // Resolve this tree's kernel release string (e.g. 6.6.98-sun60iw2).
   const krel = await capture(["make", "-s", "kernelrelease"]);
 
+  const configText = await Deno.readTextFile(".config");
   const hasModules = configText.includes("CONFIG_MODULES=y");
 
   if (hasModules) {
