@@ -177,6 +177,16 @@ if (repoInput) {
   }
 }
 
+if (mergeConfigInput) {
+  console.log(
+    chalk.magenta(
+      `Merge config detected: ${chalk.cyan(
+        mergeConfigInput
+      )} — it will be merged with the default config (default overrides on conflicts).`
+    )
+  );
+}
+
 const hasAptGet = await runQuiet(["which", "apt-get"]);
 const hasSudo = await runQuiet(["which", "sudo"]);
 if (hasAptGet) {
