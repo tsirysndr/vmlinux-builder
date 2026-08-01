@@ -433,8 +433,20 @@ if (genInitrd) {
   // Resolve this tree's kernel release string (e.g. 6.6.98-sun60iw2).
   const krel = await capture(["make", "-s", "kernelrelease"]);
 
-  // Install the freshly built modules so mkinitramfs can find them for $krel.
+  const configText = await Deno.readTextFile(".config");
+if (configText.includes("CONFIG_MODULES=y")) {
+  await run(["make", "modules", `-j${nproc}`]);
   await run([..._.compact([hasSudo ? "sudo" : null]), "make", "modules_install"]);
+}
+
+
+  // Install the freshly built modules so mkinitramfs can find them for $krel.
+  await run([..._.compact([hasSudo ? "sudo" : null]), "make", "modules_install",`INSTALL_MOD_PATH=${cwd}/modules-out`]);
+
+if (!hasModules) {
+    await run([..._.compact([hasSudo ? "sudo" : null]),
+      "mkdir", "-p", `/lib/modules/${krel}`]);
+  }
 
   // Build the initrd for this kernel release.
   const INITRD = `initrd.img-${krel}`;
