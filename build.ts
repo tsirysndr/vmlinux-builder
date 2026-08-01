@@ -76,11 +76,16 @@ const rawArgs = Deno.args;
 //                         at the kernel tree root (e.g. .config or a defconfig).
 //   --initrd              also generate an initrd (initrd.img) and, on arm64,
 //                         a U-Boot uInitrd alongside the kernel.
+//   --defconfig <name>    build a board/BSP kernel: run `make <name>` (e.g.
+//                         sun60iw2_defconfig) as the base config so the board's
+//                         essentials WIN, then layer our default config as a
+//                         lower-priority fragment. CONFIG_WERROR is forced off.
 // Anything not matching a flag is treated as the positional kernel version.
 let repoInput: string | undefined;
 let branchInput: string | undefined;
 let versionLabel: string | undefined;
 let mergeConfigInput: string | undefined;
+let defconfigInput: string | undefined;
 let genInitrd = false;
 const positional: string[] = [];
 
@@ -117,6 +122,8 @@ for (let i = 0; i < rawArgs.length; i++) {
     arg.startsWith("--config=")
   ) {
     mergeConfigInput = takeValue("--merge-config");
+  } else if (arg === "--defconfig" || arg.startsWith("--defconfig=")) {
+    defconfigInput = takeValue("--defconfig");
   } else if (arg === "--initrd") {
     genInitrd = true;
   } else {
@@ -192,6 +199,16 @@ if (repoInput) {
   }
 }
 
+if (defconfigInput) {
+  console.log(
+    chalk.magenta(
+      `Board defconfig detected: ${chalk.cyan(
+        defconfigInput
+      )} — it will be used as the base config (board wins) with the default config layered underneath.`
+    )
+  );
+}
+
 if (mergeConfigInput) {
   console.log(
     chalk.magenta(
@@ -264,7 +281,39 @@ if (!(await fileExists("linux-stable"))) {
   Deno.chdir("..");
 }
 
-if (mergeConfigInput) {
+if (defconfigInput) {
+  // Board/BSP path: the board defconfig is the base and WINS on conflicts,
+  // our default config is layered underneath to fill in extras.
+  Deno.chdir("linux-stable");
+
+  console.log(
+    `Using board defconfig ${chalk.cyan(
+      defconfigInput
+    )} as base (board essentials win); layering default config underneath.`
+  );
+
+  // Generate the board's full .config (e.g. `make sun60iw2_defconfig`).
+  await run(["make", defconfigInput]);
+  await Deno.copyFile(".config", "board.config");
+
+  // Write our default config as a fragment and merge with the board config
+  // LAST, so the board overrides our defaults on any conflicting symbol.
+  await Deno.writeTextFile("default.config", cfg);
+  await run([
+    "scripts/kconfig/merge_config.sh",
+    "-m",
+    "default.config",
+    "board.config",
+  ]);
+
+  // Older BSP trees often fail to build with modern GCC when warnings are
+  // fatal; force CONFIG_WERROR off (appended last so olddefconfig honors it).
+  const merged = await Deno.readTextFile(".config");
+  await Deno.writeTextFile(".config", `${merged}\n# CONFIG_WERROR is not set\n`);
+
+  // Normalize against this tree's Kconfig.
+  await run(["make", "olddefconfig"]);
+} else if (mergeConfigInput) {
   // Merge an existing config with the default config. We simply concatenate,
   // putting the default config LAST so it overrides the existing config on
   // conflicting symbols (kconfig keeps the last assignment when reading).
