@@ -24,6 +24,10 @@ on:
         description: "Optional label used to name the vmlinux artifact when building from a custom repo."
         required: false
         default: ""
+      config:
+        description: "Optional existing config to merge with the default config (default overrides). A file at the kernel tree root (e.g. .config or arch/arm64/configs/sun60iw2_defconfig) or an http(s) URL."
+        required: false
+        default: ""
       arch:
         description: "Architecture to build. 'both' builds x86_64 and aarch64 in parallel."
         required: false
@@ -72,10 +76,13 @@ jobs:
           INPUT_REPO: ${{ github.event.inputs.repo }}
           INPUT_BRANCH: ${{ github.event.inputs.branch }}
           INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_CONFIG: ${{ github.event.inputs.config }}
         run: |
           REPO="${INPUT_REPO}"
           BRANCH="${INPUT_BRANCH}"
           TAG="${INPUT_TAG:-6.17.7}"
+
+          echo "MERGE_CONFIG=${INPUT_CONFIG}" >> "$GITHUB_ENV"
 
           if [[ -n "$REPO" ]]; then
             if [[ -z "$BRANCH" ]]; then
@@ -108,12 +115,38 @@ jobs:
 
       - name: Build
         run: |
+          MERGE_ARGS=()
+          if [[ -n "$MERGE_CONFIG" ]]; then
+            MERGE_ARGS=(--merge-config "$MERGE_CONFIG")
+          fi
+
           if [[ -n "$REPO" ]]; then
-            ./build.ts --repo "$REPO" --branch "$BRANCH" --version "$VERSION"
+            ./build.ts --repo "$REPO" --branch "$BRANCH" --version "$VERSION" "${MERGE_ARGS[@]}"
           else
-            ./build.ts "$TAG"
+            ./build.ts "$TAG" "${MERGE_ARGS[@]}"
           fi
           sha256sum linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }} > linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}.sha256
+
+      - name: Generate uImage (arm64 only)
+        if: env.CPU_ARCH == 'aarch64'
+        working-directory: linux-stable
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y u-boot-tools
+
+          # Build the arm64 boot Image (native build, no cross toolchain needed)
+          make Image -j"$(nproc)"
+
+          gzip -9 -k arch/arm64/boot/Image        # optional compression
+
+          # Use the tree's own release string for the image name
+          KREL="$(make -s kernelrelease)"
+          mkimage -A arm64 -O linux -T kernel -C gzip \
+              -a 0x40080000 -e 0x40080000 \
+              -n "Linux ${KREL}" \
+              -d arch/arm64/boot/Image.gz uImage
+
+          sha256sum uImage > uImage.sha256
 
       - name: Upload artifact
         if: github.event_name == 'workflow_dispatch'
@@ -123,3 +156,12 @@ jobs:
           path: |
             linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}
             linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}.sha256
+
+      - name: Upload uImage (arm64 only)
+        if: github.event_name == 'workflow_dispatch' && env.CPU_ARCH == 'aarch64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: uImage-${{ env.VERSION }}.${{ env.CPU_ARCH }}
+          path: |
+            linux-stable/uImage
+            linux-stable/uImage.sha256

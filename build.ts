@@ -57,13 +57,18 @@ async function getNproc(): Promise<string> {
 const rawArgs = Deno.args;
 
 // Parse optional flags:
-//   --repo <url>      clone from a custom git repository instead of linux-stable
-//   --branch <ref>    branch or tag to check out (required with --repo)
-//   --version <label> label used to name the output vmlinux file (optional)
+//   --repo <url>          clone from a custom git repository instead of linux-stable
+//   --branch <ref>        branch or tag to check out (required with --repo)
+//   --version <label>     label used to name the output vmlinux file (optional)
+//   --merge-config <src>  existing config to merge with the default config; the
+//                         default config is appended last so it overrides on
+//                         conflicts. <src> is an http(s) URL or a file resolved
+//                         at the kernel tree root (e.g. .config or a defconfig).
 // Anything not matching a flag is treated as the positional kernel version.
 let repoInput: string | undefined;
 let branchInput: string | undefined;
 let versionLabel: string | undefined;
+let mergeConfigInput: string | undefined;
 const positional: string[] = [];
 
 for (let i = 0; i < rawArgs.length; i++) {
@@ -92,6 +97,13 @@ for (let i = 0; i < rawArgs.length; i++) {
     branchInput = takeValue("--branch");
   } else if (arg === "--version" || arg.startsWith("--version=")) {
     versionLabel = takeValue("--version");
+  } else if (
+    arg === "--merge-config" ||
+    arg.startsWith("--merge-config=") ||
+    arg === "--config" ||
+    arg.startsWith("--config=")
+  ) {
+    mergeConfigInput = takeValue("--merge-config");
   } else {
     positional.push(arg);
   }
@@ -227,18 +239,55 @@ if (!(await fileExists("linux-stable"))) {
   Deno.chdir("..");
 }
 
-if (!(await Deno.stat(".config").catch(() => false))) {
-  console.log(
-    chalk.yellow(
-      "No .config file found in the current directory. Using default configuration."
-    )
-  );
-  await Deno.writeTextFile(".config", cfg);
+if (mergeConfigInput) {
+  // Merge an existing config with the default config. We simply concatenate,
+  // putting the default config LAST so it overrides the existing config on
+  // conflicting symbols (kconfig keeps the last assignment when reading).
+  Deno.chdir("linux-stable");
+
+  let existing: string;
+  if (/^https?:\/\//i.test(mergeConfigInput)) {
+    console.log(
+      `Fetching existing config from ${chalk.cyan(mergeConfigInput)}`
+    );
+    const resp = await fetch(mergeConfigInput);
+    if (!resp.ok) {
+      console.log(
+        chalk.yellow(
+          `Error: failed to fetch config (${resp.status} ${resp.statusText})`
+        )
+      );
+      Deno.exit(1);
+    }
+    existing = await resp.text();
+  } else {
+    // Resolved at the kernel tree root (cwd is linux-stable), e.g. ".config"
+    // or "arch/arm64/configs/sun60iw2_defconfig".
+    console.log(
+      `Merging existing config ${chalk.cyan(mergeConfigInput)} with default config (default overrides)`
+    );
+    existing = await Deno.readTextFile(mergeConfigInput);
+  }
+
+  await Deno.writeTextFile(".config", `${existing}\n${cfg}\n`);
+
+  // Normalize the merged config against this tree's Kconfig (fills in new
+  // symbols with their defaults, drops symbols that don't apply).
+  await run(["make", "olddefconfig"]);
+} else {
+  if (!(await Deno.stat(".config").catch(() => false))) {
+    console.log(
+      chalk.yellow(
+        "No .config file found in the current directory. Using default configuration."
+      )
+    );
+    await Deno.writeTextFile(".config", cfg);
+  }
+
+  Deno.chdir("linux-stable");
+
+  await Deno.copyFile("../.config", ".config");
 }
-
-Deno.chdir("linux-stable");
-
-await Deno.copyFile("../.config", ".config");
 
 await run(["make", "prepare"]);
 
