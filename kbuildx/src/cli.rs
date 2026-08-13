@@ -1,10 +1,30 @@
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 
+use crate::consts::KERNEL_REPO;
+
 #[derive(Parser, Serialize, Deserialize)]
 pub struct LsArgs {
-    #[arg(long)]
+    #[arg(
+        short = 'r',
+        long = "refresh",
+        default_value_t = false,
+        help = "Refresh the list of kernel versions by fetching from the remote repository."
+    )]
     pub refresh: bool,
+}
+
+#[derive(Parser, Serialize, Deserialize)]
+pub struct BuildArgs {
+    #[arg(value_name = "VERSION", help = "Specify the kernel version to build.")]
+    pub version: Option<String>,
+    #[arg(
+        short = 'r',
+        long = "repo",
+        default_value_t = KERNEL_REPO.to_string(),
+        help = "Specify a custom kernel repository URL."
+    )]
+    pub repo: String,
 }
 
 #[derive(Parser, Serialize, Deserialize)]
@@ -21,4 +41,5 @@ pub struct Cli {
 #[derive(Subcommand, Serialize, Deserialize)]
 pub enum Command {
     Ls(LsArgs),
+    Build(BuildArgs),
 }

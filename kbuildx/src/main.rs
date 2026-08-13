@@ -4,6 +4,8 @@ use clap::Parser;
 
 mod cli;
 mod commands;
+mod config;
+mod consts;
 
 fn main() -> Result<()> {
     commands::dispatch(Cli::parse().cmd)

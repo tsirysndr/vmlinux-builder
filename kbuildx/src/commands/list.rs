@@ -1,8 +1,6 @@
 use std::{path::Path, process::Command};
 
-use crate::cli::LsArgs;
-
-const KERNEL_REPO: &str = "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git";
+use crate::{cli::LsArgs, consts::KERNEL_REPO};
 
 pub fn list_versions(args: LsArgs) {
     if Path::new("/tmp/kernel_versions.txt").exists() && !args.refresh {
