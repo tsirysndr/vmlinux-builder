@@ -1,10 +1,74 @@
 use anyhow::{Result, bail};
 use bsdkrun_sdk::Sandbox;
 use owo_colors::{OwoColorize, Rgb};
+use std::io::Write;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::{cli::BuildArgs, config::KernelConfig, consts::KERNEL_REPO};
+
+enum Runtime {
+    Host,
+    Sandbox(Sandbox),
+}
+
+impl Runtime {
+    fn run(&self, program: &str, args: &[&str], stdin: Option<&str>, tty: bool) -> Result<i32> {
+        match self {
+            Self::Host => {
+                let mut command = Command::new(program);
+                command
+                    .args(args)
+                    .stdout(Stdio::inherit())
+                    .stderr(Stdio::inherit())
+                    .stdin(if stdin.is_some() {
+                        Stdio::piped()
+                    } else {
+                        Stdio::null()
+                    });
+                let mut child = command.spawn()?;
+                if let Some(input) = stdin {
+                    child
+                        .stdin
+                        .take()
+                        .expect("piped stdin must be available")
+                        .write_all(input.as_bytes())?;
+                }
+                let status = child.wait()?;
+                if !status.success() {
+                    bail!(
+                        "command failed (exit {}): {} {}",
+                        status.code().unwrap_or(-1),
+                        program,
+                        args.join(" ")
+                    );
+                }
+                Ok(status.code().unwrap_or_default())
+            }
+            Self::Sandbox(sandbox) => {
+                let mut command = sandbox
+                    .command(program)
+                    .args(args.iter().copied())
+                    .stdout(std::io::stdout())
+                    .stderr(std::io::stderr())
+                    .tty(tty);
+                if let Some(input) = stdin {
+                    command = command.stdin(input);
+                }
+                Ok(command.run()?.ok_or_err()?.exit_code)
+            }
+        }
+    }
+}
+
+fn host_has_apk() -> bool {
+    Command::new("apk")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
 
 fn step_label(label: &str) -> String {
     label.color(Rgb(125, 86, 244)).bold().to_string()
@@ -87,15 +151,24 @@ pub fn build_kernel(args: BuildArgs) -> Result<()> {
         muted(&git_ref)
     );
 
-    let sbx = start_sandbox(args.cpus, args.memory)?;
-    install_deps(&sbx)?;
-    sync_kernel(&sbx, repo, &git_ref)?;
+    let runtime = if host_has_apk() {
+        println!(
+            "{} {}",
+            step_label("[1/4 HOST]"),
+            success("Alpine host detected; skipping sandbox.")
+        );
+        Runtime::Host
+    } else {
+        Runtime::Sandbox(start_sandbox(args.cpus, args.memory)?)
+    };
+    install_deps(&runtime)?;
+    sync_kernel(&runtime, repo, &git_ref)?;
     println!(
         "{} {}",
         step_label("[3/4 KERNEL]"),
         success("Kernel checkout is ready")
     );
-    start_compilation(&sbx, &args, &version_label)?;
+    start_compilation(&runtime, &args, &version_label)?;
 
     Ok(())
 }
@@ -201,38 +274,36 @@ fn start_sandbox(cpus: u32, memory: u32) -> Result<Sandbox> {
     Ok(sandbox)
 }
 
-fn install_deps(sbx: &Sandbox) -> Result<()> {
+fn install_deps(runtime: &Runtime) -> Result<()> {
     println!(
         "{} {}",
         step_label("[2/4 DEPS]"),
         action("Installing build dependencies")
     );
-    let result = sbx
-        .command("sh")
-        .args([
+    let exit_code = runtime.run(
+        "sh",
+        &[
             "-c",
             r#"set -e
 apk add --no-cache git build-base flex bison ncurses-dev openssl-dev gcc bc \
     elfutils-dev pahole curl tar gzip u-boot-tools mkinitfs bash perl python3 \
     rsync cpio xz zstd findutils"#,
-        ])
-        .stdout(std::io::stdout())
-        .stderr(std::io::stderr())
-        .tty(true)
-        .run()?
-        .ok_or_err()?;
+        ],
+        None,
+        true,
+    )?;
 
     println!(
         "{} {} {}",
         step_label("[2/4 DEPS]"),
         success("Dependencies installed; exit code:"),
-        success(&result.exit_code.to_string())
+        success(&exit_code.to_string())
     );
 
     Ok(())
 }
 
-fn sync_kernel(sbx: &Sandbox, repo: &str, git_ref: &str) -> Result<()> {
+fn sync_kernel(runtime: &Runtime, repo: &str, git_ref: &str) -> Result<()> {
     let kernel_label = step_label("[3/4 KERNEL]");
     let reuse_message = format!(
         "{} {}",
@@ -252,9 +323,9 @@ fn sync_kernel(sbx: &Sandbox, repo: &str, git_ref: &str) -> Result<()> {
     let current_tag_message = format!("{} {}", kernel_label, success("Current kernel tag:"));
     let current_commit_message = format!("{} Current commit: \x1b[38;2;0;215;215m", kernel_label);
 
-    let result = sbx
-        .command("sh")
-        .args([
+    let exit_code = runtime.run(
+        "sh",
+        &[
             "-c",
             r#"
 set -e
@@ -287,24 +358,22 @@ printf '%s%s\033[0m\n' "$7" "$current_commit"
             &clone_message,
             &current_tag_message,
             &current_commit_message,
-        ])
-        .stdout(std::io::stdout())
-        .stderr(std::io::stderr())
-        .tty(true)
-        .run()?
-        .ok_or_err()?;
+        ],
+        None,
+        true,
+    )?;
 
     println!(
         "{} {} {}",
         kernel_label,
         success("Kernel sync exit code:"),
-        success(&result.exit_code.to_string())
+        success(&exit_code.to_string())
     );
 
     Ok(())
 }
 
-fn start_compilation(sbx: &Sandbox, args: &BuildArgs, version_label: &str) -> Result<()> {
+fn start_compilation(runtime: &Runtime, args: &BuildArgs, version_label: &str) -> Result<()> {
     let kernel_config = KernelConfig::default().to_string();
     let defconfig = args.defconfig.as_deref().unwrap_or_default();
     let merge_config = args.merge_config.as_deref().unwrap_or_default();
@@ -319,9 +388,9 @@ fn start_compilation(sbx: &Sandbox, args: &BuildArgs, version_label: &str) -> Re
         value("default")
     );
 
-    let result = sbx
-        .command("sh")
-        .args([
+    let exit_code = runtime.run(
+        "sh",
+        &[
             "-c",
             r#"set -e
 kernel_dir="${PWD%/}/linux"
@@ -479,19 +548,16 @@ fi
             &args.uimage_load,
             &args.uimage_entry,
             uimage_name,
-        ])
-        .stdin(&kernel_config)
-        .stdout(std::io::stdout())
-        .stderr(std::io::stderr())
-        .tty(false)
-        .run()?
-        .ok_or_err()?;
+        ],
+        Some(&kernel_config),
+        false,
+    )?;
 
     println!(
         "{} {} {}",
         step_label("[4/4 BUILD]"),
         success("Kernel build exit code:"),
-        success(&result.exit_code.to_string())
+        success(&exit_code.to_string())
     );
 
     Ok(())
