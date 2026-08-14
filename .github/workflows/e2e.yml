@@ -74,7 +74,8 @@ jobs:
           # per inode. The kernel tree exceeds the runner's 65K hard limit, so
           # use privilege to raise both limits for kbuildx and its VM process.
           fd_limit="$(cat /proc/sys/fs/nr_open)"
-          echo "File descriptor limit: $fd_limit"
-          sudo prlimit --nofile="$fd_limit:$fd_limit" -- \
-            ./target/release/kbuildx build 6.6.1
+          sudo prlimit --pid "$$" --nofile="$fd_limit:$fd_limit"
+          echo "File descriptor limit: $(ulimit -n)"
+          echo "bsdkrun binary: $(command -v bsdkrun)"
+          ./target/release/kbuildx build 6.6.1
         working-directory: ./kbuildx
