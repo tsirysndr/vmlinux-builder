@@ -3,6 +3,13 @@ set -eu
 
 version=$1
 export PATH=/usr/pkg/bin:/usr/pkg/sbin:/sbin:/usr/sbin:/bin:/usr/bin
+if command -v resize_ffs >/dev/null 2>&1; then
+    printf '%s\n' 'Growing NetBSD FFS root filesystem to fill the virtual disk'
+    resize_ffs -y /dev/ld0a
+else
+    printf '%s\n' 'NetBSD resize_ffs is unavailable; cannot use the expanded build disk' >&2
+    exit 1
+fi
 case "$(uname -m)" in
     amd64|x86_64) pkg_arch=x86_64 ;;
     *) pkg_arch=aarch64 ;;
@@ -26,11 +33,6 @@ mkdir -p /usr/pkg/etc/pkgin
 export PKG_PATH="$package_path"
 printf '%s\n' "$package_path" > /usr/pkg/etc/pkgin/repositories.conf
 pkgin -y update
-if pkgin -y install mozilla-rootcerts-openssl; then
-    if command -v mozilla-rootcerts >/dev/null 2>&1; then
-        mozilla-rootcerts install || true
-    fi
-fi
 secure_path="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$pkg_arch/$pkg_release/All/"
 if [ -e /etc/ssl/cert.pem ] || [ -e /etc/openssl/certs/ca-certificates.crt ]; then
     package_path="$secure_path"
