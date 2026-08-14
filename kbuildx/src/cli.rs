@@ -95,6 +95,12 @@ pub struct BuildArgs {
         help = "Memory assigned to the build sandbox, in MiB."
     )]
     pub memory: u32,
+    #[arg(
+        long = "set-config",
+        value_name = "NAME=VALUE",
+        help = "Override a built-in kernel config option (repeatable)."
+    )]
+    pub set_config: Vec<String>,
 }
 
 #[derive(Parser, Serialize, Deserialize)]
@@ -106,13 +112,15 @@ pub struct BuildArgs {
 )]
 pub struct Cli {
     #[command(subcommand)]
-    pub cmd: Command,
+    pub cmd: Option<Command>,
 }
 
 #[derive(Subcommand, Serialize, Deserialize)]
 pub enum Command {
     Ls(LsArgs),
     Build(BuildArgs),
+    #[command(about = "Launch the interactive terminal interface.")]
+    Tui,
 }
 
 #[cfg(test)]
@@ -123,7 +131,7 @@ mod tests {
     #[test]
     fn build_resources_have_defaults() {
         let cli = Cli::try_parse_from(["kbuildx", "build", "6.6.1"]).unwrap();
-        let Command::Build(args) = cli.cmd else {
+        let Some(Command::Build(args)) = cli.cmd else {
             panic!("expected build command");
         };
 
@@ -137,7 +145,7 @@ mod tests {
             "kbuildx", "build", "6.6.1", "--cpus", "4", "--memory", "4096",
         ])
         .unwrap();
-        let Command::Build(args) = cli.cmd else {
+        let Some(Command::Build(args)) = cli.cmd else {
             panic!("expected build command");
         };
 

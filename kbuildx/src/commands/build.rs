@@ -125,6 +125,26 @@ fn safe_label(value: &str) -> String {
         .collect()
 }
 
+fn configured_kernel(args: &BuildArgs) -> Result<KernelConfig> {
+    let mut config = KernelConfig::default();
+    for setting in &args.set_config {
+        let Some((name, raw_value)) = setting.split_once('=') else {
+            bail!("invalid --set-config '{setting}'; expected NAME=y|m|n");
+        };
+        let name = name.strip_prefix("CONFIG_").unwrap_or(name);
+        let value = match raw_value {
+            "y" => crate::config::ConfigValue::Yes,
+            "m" => crate::config::ConfigValue::Module,
+            "n" => crate::config::ConfigValue::No,
+            _ => bail!("invalid value in --set-config '{setting}'; expected y, m, or n"),
+        };
+        if !config.set(name, value) {
+            bail!("unknown built-in kernel config option: {name}");
+        }
+    }
+    Ok(config)
+}
+
 pub fn build_kernel(args: BuildArgs) -> Result<()> {
     let repo = args.repo.as_str();
     let (git_ref, version_label) = if repo != KERNEL_REPO {
@@ -374,7 +394,7 @@ printf '%s%s\033[0m\n' "$7" "$current_commit"
 }
 
 fn start_compilation(runtime: &Runtime, args: &BuildArgs, version_label: &str) -> Result<()> {
-    let kernel_config = KernelConfig::default().to_string();
+    let kernel_config = configured_kernel(args)?.to_string();
     let defconfig = args.defconfig.as_deref().unwrap_or_default();
     let merge_config = args.merge_config.as_deref().unwrap_or_default();
     let uimage_name = args.uimage_name.as_deref().unwrap_or_default();

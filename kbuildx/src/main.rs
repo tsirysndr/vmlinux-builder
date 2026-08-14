@@ -6,6 +6,7 @@ mod cli;
 mod commands;
 mod config;
 mod consts;
+mod tui;
 
 fn main() -> Result<()> {
     commands::dispatch(Cli::parse().cmd)
