@@ -2,7 +2,7 @@
 
 `kbuildx` is an interactive Linux kernel builder. It combines a Ratatui terminal interface with a scriptable command-line API, manages kernel source checkouts, applies a built-in kernel configuration, and produces boot and module artifacts.
 
-On Alpine Linux, builds run directly on the host. On other systems, `kbuildx` creates and reuses an Alpine microVM through [bsdkrun](https://github.com/tsirysndr/bsdkrun).
+On Linux, builds can run directly on hosts with `apk`, `apt-get`, or `dnf`. Alpine is detected automatically. Otherwise, `kbuildx` creates and reuses an Alpine microVM through [bsdkrun](https://github.com/tsirysndr/bsdkrun). macOS always uses bsdkrun.
 
 ## Highlights
 
@@ -15,7 +15,7 @@ On Alpine Linux, builds run directly on the host. On other systems, `kbuildx` cr
 - Optional board defconfig and external config merging.
 - Optional modules, initrd, arm64 Image, uImage, and uInitrd output.
 - Persistent kernel checkout reused across builds.
-- Native Alpine builds with an automatic bsdkrun fallback elsewhere.
+- Native Linux builds with `apk`, `apt-get`, or `dnf`, plus a bsdkrun fallback.
 
 ## Installation
 
@@ -25,14 +25,14 @@ Requirements:
 
 - Rust toolchain compatible with edition 2024.
 - Git.
-- On non-Alpine hosts, the `bsdkrun` CLI and a supported virtualization backend.
+- On hosts not using Linux `--host` mode, the `bsdkrun` CLI and a supported virtualization backend.
 
 ```sh
 cargo build --release --locked
 install -m 0755 target/release/kbuildx /usr/local/bin/kbuildx
 ```
 
-Install bsdkrun when the host does not provide `apk`:
+Install bsdkrun when direct Linux host mode is not being used:
 
 ```sh
 npm install -g @bsdkrun/cli
@@ -144,7 +144,25 @@ This resolves to the upstream `linux-6.6.y` branch and uses `6.6` in artifact na
 kbuildx build 7.1.8 --cpus 8 --memory 8192
 ```
 
-Defaults are 2 vCPUs and 2048 MiB. `--mem` is an alias for `--memory`. Resource flags apply only when a bsdkrun sandbox is needed; direct Alpine-host builds use the host resources.
+Defaults are 2 vCPUs and 2048 MiB. `--mem` is an alias for `--memory`. Resource flags apply only when a bsdkrun sandbox is needed; direct host builds use the host resources.
+
+### Build directly on a Linux host
+
+```sh
+kbuildx build 7.1.8 --host
+```
+
+Host mode is supported only on Linux. It detects the available package manager and installs the corresponding kernel build dependencies:
+
+| Distribution family | Detected command | Initrd tool      |
+| ------------------- | ---------------- | ---------------- |
+| Alpine              | `apk`            | `mkinitfs`       |
+| Debian / Ubuntu     | `apt-get`        | `mkinitramfs`    |
+| Fedora / RHEL       | `dnf`            | `dracut`         |
+
+Dependency installation runs directly when already root and uses `sudo` otherwise. If no supported package manager exists, host mode exits with an actionable error.
+
+Alpine retains automatic host execution for compatibility with container usage. On Debian-, Ubuntu-, Fedora-, and RHEL-family systems, pass `--host` explicitly. macOS never permits host mode and always uses bsdkrun.
 
 ### Custom repository and branch
 
@@ -219,7 +237,7 @@ The option is skipped with a warning when modules are disabled in the normalized
 kbuildx build 7.1.8 --initrd
 ```
 
-Alpine's `mkinitfs` generates `initrd.img-<kernelrelease>`. On arm64, an additional U-Boot `uInitrd` is generated. SHA-256 files are created alongside the artifacts.
+The distribution's initrd tool (`mkinitfs`, `mkinitramfs`, or `dracut`) generates `initrd.img-<kernelrelease>`. On arm64, an additional U-Boot `uInitrd` is generated. SHA-256 files are created alongside the artifacts.
 
 ### U-Boot uImage
 
@@ -239,9 +257,9 @@ uImage generation is arm64-only. The defaults match a conventional Linux kernel 
 
 ## Build execution model
 
-### Alpine host
+### Direct Linux host
 
-At startup, `kbuildx` executes `apk --version`. If it succeeds, dependency installation, checkout, configuration, and compilation run directly on the host.
+With `--host`, `kbuildx` detects `apk`, `apt-get`, or `dnf`, installs the platform-specific build dependencies, and runs checkout, configuration, and compilation directly. Alpine hosts are detected automatically even when `--host` is omitted.
 
 The checkout is stored at:
 
@@ -249,11 +267,11 @@ The checkout is stored at:
 ./linux
 ```
 
-This mode is used automatically in Alpine containers and native Alpine systems.
+This mode is used automatically in Alpine containers and native Alpine systems. Other Linux distributions require `--host`.
 
 ### bsdkrun sandbox
 
-When `apk` is unavailable, `kbuildx` creates or reuses an Alpine sandbox named:
+When direct host mode is not selected, `kbuildx` creates or reuses an Alpine sandbox named:
 
 ```text
 kbuildx_sandbox
@@ -310,11 +328,11 @@ Optional outputs include:
 - `uInitrd` and checksum on arm64
 - `modules-<kernelrelease>.tar.gz` and checksum
 
-Artifacts live in `./linux` during direct Alpine builds and `/linux` inside the persistent bsdkrun sandbox otherwise.
+Artifacts live in `./linux` during direct host builds and `/linux` inside the persistent bsdkrun sandbox otherwise.
 
 ## GitHub Actions E2E tests
 
-The repository workflow:
+The sandbox E2E workflow:
 
 - Runs on `ubuntu-latest` with KVM enabled.
 - Installs `@bsdkrun/cli`.
@@ -324,6 +342,13 @@ The repository workflow:
 - Exercises `ls --refresh`.
 - Performs a full Linux 7.1.8 build using all runner CPUs and reported memory.
 - Raises the host file-descriptor hard limit for Linux virtio-fs, which pins a descriptor per observed inode.
+
+A separate host E2E workflow runs directly on `ubuntu-latest`:
+
+- Does not install or invoke bsdkrun.
+- Builds and tests the Rust CLI.
+- Verifies that `--host` is exposed.
+- Performs a full Linux 7.1.8 build with Ubuntu's `apt-get` toolchain.
 
 ## Troubleshooting
 

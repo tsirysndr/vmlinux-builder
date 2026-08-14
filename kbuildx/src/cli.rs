@@ -101,6 +101,11 @@ pub struct BuildArgs {
         help = "Override a built-in kernel config option (repeatable)."
     )]
     pub set_config: Vec<String>,
+    #[arg(
+        long,
+        help = "Run build steps directly on a supported Linux host instead of bsdkrun."
+    )]
+    pub host: bool,
 }
 
 #[derive(Parser, Serialize, Deserialize)]
@@ -151,5 +156,15 @@ mod tests {
 
         assert_eq!(args.cpus, 4);
         assert_eq!(args.memory, 4096);
+    }
+
+    #[test]
+    fn host_build_mode_can_be_selected() {
+        let cli = Cli::try_parse_from(["kbuildx", "build", "7.1.8", "--host"]).unwrap();
+        let Some(Command::Build(args)) = cli.cmd else {
+            panic!("expected build command");
+        };
+
+        assert!(args.host);
     }
 }

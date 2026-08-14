@@ -310,29 +310,27 @@ impl App {
                 self.query.pop();
                 self.selected = 0;
             }
-            KeyCode::Enter => {
-                match self.modal {
-                    Modal::Versions => {
-                        if let Some(index) = self.filtered_versions().get(self.selected) {
-                            self.selected_version.clone_from(&self.versions[*index]);
-                        }
+            KeyCode::Enter => match self.modal {
+                Modal::Versions => {
+                    if let Some(index) = self.filtered_versions().get(self.selected) {
+                        self.selected_version.clone_from(&self.versions[*index]);
                     }
-                    Modal::Configs => {
-                        if let Some(index) = self.filtered_configs().get(self.selected) {
-                            let (name, default) = &self.configs[*index];
-                            let current = self.overrides.get(name).copied().unwrap_or(*default);
-                            let next = match current {
-                                'n' => 'y',
-                                'y' => 'm',
-                                _ => 'n',
-                            };
-                            self.overrides.insert(name.clone(), next);
-                        }
-                    }
-                    _ => {}
+                    self.modal = Modal::None;
                 }
-                self.modal = Modal::None;
-            }
+                Modal::Configs => {
+                    if let Some(index) = self.filtered_configs().get(self.selected) {
+                        let (name, default) = &self.configs[*index];
+                        let current = self.overrides.get(name).copied().unwrap_or(*default);
+                        let next = match current {
+                            'n' => 'y',
+                            'y' => 'm',
+                            _ => 'n',
+                        };
+                        self.overrides.insert(name.clone(), next);
+                    }
+                }
+                _ => {}
+            },
             KeyCode::Char(character) => {
                 self.query.push(character);
                 self.selected = 0;
@@ -381,9 +379,21 @@ fn draw(frame: &mut Frame, app: &mut App) {
         ])
         .split(frame.area());
 
-    let logo = Paragraph::new(LOGO)
-        .alignment(Alignment::Center)
-        .style(Style::default().fg(VIOLET).add_modifier(Modifier::BOLD));
+    let mut logo_lines: Vec<Line> = aligned_logo_lines()
+        .into_iter()
+        .map(|line| {
+            Line::styled(
+                line,
+                Style::default().fg(VIOLET).add_modifier(Modifier::BOLD),
+            )
+        })
+        .collect();
+    logo_lines.push(Line::from(""));
+    logo_lines.push(Line::styled(
+        "Interactive Linux kernel builder",
+        Style::default().fg(CYAN),
+    ));
+    let logo = Paragraph::new(Text::from(logo_lines)).alignment(Alignment::Center);
     frame.render_widget(logo, areas[0]);
 
     let state = Line::from(vec![
@@ -450,9 +460,29 @@ fn draw(frame: &mut Frame, app: &mut App) {
     }
 }
 
+fn aligned_logo_lines() -> Vec<String> {
+    let width = LOGO.lines().map(str::len).max().unwrap_or_default();
+    LOGO.lines().map(|line| format!("{line:<width$}")).collect()
+}
+
 fn draw_search_modal(frame: &mut Frame, app: &App, versions: bool) {
     let area = centered_rect(76, 72, frame.area());
     frame.render_widget(Clear, area);
+    frame.render_widget(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(VIOLET))
+            .title(if versions {
+                " Kernel versions "
+            } else {
+                " Kernel config "
+            }),
+        area,
+    );
+    let content = area.inner(ratatui::layout::Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
     let query = if app.query.is_empty() {
         "type to fuzzy-search…"
     } else {
@@ -465,15 +495,15 @@ fn draw_search_modal(frame: &mut Frame, app: &App, versions: bool) {
             Constraint::Min(2),
             Constraint::Length(1),
         ])
-        .split(area);
+        .split(content);
     frame.render_widget(
         Paragraph::new(format!("> {query}"))
             .style(Style::default().fg(CYAN))
-            .block(Block::default().borders(Borders::ALL).title(if versions {
-                " / Kernel versions "
-            } else {
-                " / Kernel config "
-            })),
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Fuzzy search "),
+            ),
         inner[0],
     );
 
@@ -506,7 +536,7 @@ fn draw_search_modal(frame: &mut Frame, app: &App, versions: bool) {
         Paragraph::new(if versions {
             " Enter select • Esc cancel "
         } else {
-            " Enter cycle n → y → m and set • Esc cancel "
+            " Enter cycle n → y → m • Esc done "
         })
         .alignment(Alignment::Center)
         .style(Style::default().fg(MUTED)),
@@ -621,7 +651,9 @@ fn status_style(status: &str) -> Style {
 
 #[cfg(test)]
 mod tests {
-    use super::{fuzzy_indices, version_key};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    use super::{App, Modal, aligned_logo_lines, fuzzy_indices, version_key};
 
     #[test]
     fn fuzzy_search_prioritizes_close_matches() {
@@ -633,5 +665,24 @@ mod tests {
     #[test]
     fn version_keys_sort_numerically() {
         assert!(version_key("7.1.10") > version_key("7.1.9"));
+    }
+
+    #[test]
+    fn logo_uses_a_fixed_width_canvas() {
+        let lines = aligned_logo_lines();
+        assert!(lines.windows(2).all(|pair| pair[0].len() == pair[1].len()));
+    }
+
+    #[test]
+    fn enter_cycles_config_without_closing_modal() {
+        let mut app = App::new();
+        app.modal = Modal::Configs;
+        app.query = "BPF".to_string();
+        let index = app.filtered_configs()[0];
+        let (name, default) = app.configs[index].clone();
+        app.handle_search_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(app.modal, Modal::Configs);
+        assert_ne!(app.overrides.get(&name), Some(&default));
     }
 }

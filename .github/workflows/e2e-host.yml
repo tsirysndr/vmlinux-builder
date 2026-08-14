@@ -1,0 +1,41 @@
+name: Host end-to-end tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-e2e:
+    name: Build directly on Ubuntu
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: kbuildx -> target
+
+      - name: Build kbuildx CLI
+        run: cargo build --release --locked
+        working-directory: ./kbuildx
+
+      - name: Run Rust tests
+        run: cargo test --locked
+        working-directory: ./kbuildx
+
+      - name: Verify host build option
+        shell: bash
+        run: ./target/release/kbuildx build --help | grep -F -- '--host'
+        working-directory: ./kbuildx
+
+      - name: Test full host kernel build
+        run: ./target/release/kbuildx build 7.1.8 --host
+        working-directory: ./kbuildx

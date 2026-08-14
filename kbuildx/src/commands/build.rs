@@ -61,13 +61,21 @@ impl Runtime {
     }
 }
 
-fn host_has_apk() -> bool {
-    Command::new("apk")
+#[cfg(target_os = "linux")]
+fn command_exists(program: &str) -> bool {
+    Command::new(program)
         .arg("--version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
+}
+
+#[cfg(target_os = "linux")]
+fn host_package_manager() -> Option<&'static str> {
+    ["apk", "apt-get", "dnf"]
+        .into_iter()
+        .find(|program| command_exists(program))
 }
 
 fn step_label(label: &str) -> String {
@@ -171,11 +179,31 @@ pub fn build_kernel(args: BuildArgs) -> Result<()> {
         muted(&git_ref)
     );
 
-    let runtime = if host_has_apk() {
+    #[cfg(not(target_os = "linux"))]
+    if args.host {
+        bail!("--host is supported only on Linux; this platform must use bsdkrun");
+    }
+
+    #[cfg(target_os = "linux")]
+    let direct_host = if args.host {
+        Some(
+            host_package_manager()
+                .ok_or_else(|| anyhow::anyhow!("--host requires one of: apk, apt-get, or dnf"))?,
+        )
+    } else if command_exists("apk") {
+        Some("apk")
+    } else {
+        None
+    };
+    #[cfg(not(target_os = "linux"))]
+    let direct_host: Option<&str> = None;
+
+    let runtime = if let Some(package_manager) = direct_host {
         println!(
-            "{} {}",
+            "{} {} {}",
             step_label("[1/4 HOST]"),
-            success("Alpine host detected; skipping sandbox.")
+            success("Linux host build enabled; package manager:"),
+            value(package_manager)
         );
         Runtime::Host
     } else {
@@ -305,9 +333,36 @@ fn install_deps(runtime: &Runtime) -> Result<()> {
         &[
             "-c",
             r#"set -e
-apk add --no-cache git build-base flex bison ncurses-dev openssl-dev gcc bc \
-    elfutils-dev pahole curl tar gzip u-boot-tools mkinitfs bash perl python3 \
-    rsync cpio xz zstd findutils diffutils linux-headers"#,
+run_as_root=""
+if [ "$(id -u)" -ne 0 ]; then
+    if command -v sudo >/dev/null 2>&1; then
+        run_as_root=sudo
+    else
+        echo "Host dependency installation requires root or sudo" >&2
+        exit 1
+    fi
+fi
+
+if command -v apk >/dev/null 2>&1; then
+    $run_as_root apk add --no-cache git build-base flex bison ncurses-dev \
+        openssl-dev gcc bc elfutils-dev pahole curl tar gzip u-boot-tools \
+        mkinitfs bash perl python3 rsync cpio xz zstd findutils diffutils \
+        linux-headers
+elif command -v apt-get >/dev/null 2>&1; then
+    $run_as_root apt-get update
+    $run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        git build-essential flex bison libncurses-dev libssl-dev gcc bc \
+        libelf-dev dwarves curl tar gzip u-boot-tools initramfs-tools bash \
+        perl python3 rsync cpio xz-utils zstd findutils diffutils linux-libc-dev
+elif command -v dnf >/dev/null 2>&1; then
+    $run_as_root dnf install -y git gcc gcc-c++ make flex bison ncurses-devel \
+        openssl-devel bc elfutils-libelf-devel dwarves curl tar gzip uboot-tools \
+        dracut bash perl python3 rsync cpio xz zstd findutils diffutils \
+        kernel-headers
+else
+    echo "No supported package manager found (apk, apt-get, or dnf)" >&2
+    exit 1
+fi"#,
         ],
         None,
         true,
@@ -432,6 +487,17 @@ uimage_load=${11}
 uimage_entry=${12}
 uimage_name=${13}
 
+root_run() {
+    if [ "$(id -u)" -eq 0 ]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        echo "This build step requires root or sudo: $*" >&2
+        return 1
+    fi
+}
+
 # Preserve a config stored in the checkout before mrproper removes .config.
 merge_file=""
 if [ -n "$merge_config" ]; then
@@ -520,14 +586,16 @@ fi
 if [ "$gen_initrd" = 1 ]; then
     initrd_artifact="initrd.img-${krel}"
     if [ "$has_modules" = 1 ]; then
-        make modules_install
+        root_run make modules_install
     else
-        mkdir -p "/lib/modules/$krel"
+        root_run mkdir -p "/lib/modules/$krel"
     fi
     if command -v mkinitramfs >/dev/null 2>&1; then
-        mkinitramfs -o "$initrd_artifact" "$krel"
+        root_run mkinitramfs -o "$initrd_artifact" "$krel"
     elif command -v mkinitfs >/dev/null 2>&1; then
-        mkinitfs -o "$initrd_artifact" "$krel"
+        root_run mkinitfs -o "$initrd_artifact" "$krel"
+    elif command -v dracut >/dev/null 2>&1; then
+        root_run dracut --force "$initrd_artifact" "$krel"
     else
         echo 'No initramfs generator is installed' >&2
         exit 1
