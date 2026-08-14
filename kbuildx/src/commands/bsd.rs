@@ -160,7 +160,11 @@ fn start_bsd_sandbox(os: BuildOs, version: &str, cpus: u32, memory: u32) -> Resu
     } else {
         version
     };
-    let name = format!("kbuildx_{}_{}", os_name, safe_label(machine_version));
+    let name = format!(
+        "kbuildx_{}_{}_builddisk",
+        os_name,
+        safe_label(machine_version)
+    );
     let (sandbox, created) = match Sandbox::get(&name) {
         Ok(sandbox) => (sandbox, false),
         Err(_) => {
