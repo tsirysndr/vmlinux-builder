@@ -6,6 +6,7 @@ use crate::{
     tui::run_tui,
 };
 
+pub mod bsd;
 pub mod build;
 pub mod list;
 

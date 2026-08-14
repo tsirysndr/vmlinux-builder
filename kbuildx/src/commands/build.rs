@@ -5,7 +5,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::{cli::BuildArgs, config::KernelConfig, consts::KERNEL_REPO};
+use crate::{
+    cli::{BuildArgs, BuildOs},
+    config::KernelConfig,
+    consts::KERNEL_REPO,
+};
 
 enum Runtime {
     Host,
@@ -111,7 +115,7 @@ impl Runtime {
     }
 }
 
-fn artifact_arch() -> &'static str {
+pub(crate) fn artifact_arch() -> &'static str {
     match std::env::consts::ARCH {
         "aarch64" => "aarch64",
         "x86_64" => "x86_64",
@@ -119,7 +123,11 @@ fn artifact_arch() -> &'static str {
     }
 }
 
-fn export_sandbox_file(sandbox: &Sandbox, guest_path: &str, host_path: &Path) -> Result<()> {
+pub(crate) fn export_sandbox_file(
+    sandbox: &Sandbox,
+    guest_path: &str,
+    host_path: &Path,
+) -> Result<()> {
     let binary = std::env::var_os("BSDKRUN_BIN").unwrap_or_else(|| "bsdkrun".into());
     let temporary = temporary_artifact_path(host_path);
     let output = std::fs::File::create(&temporary)?;
@@ -244,6 +252,12 @@ fn configured_kernel(args: &BuildArgs) -> Result<KernelConfig> {
 }
 
 pub fn build_kernel(args: BuildArgs) -> Result<()> {
+    if args.os != BuildOs::Linux {
+        return crate::commands::bsd::build_bsd(args);
+    }
+    if args.bundle {
+        bail!("--bundle is available only with --os freebsd or --os netbsd");
+    }
     let repo = args.repo.as_str();
     let (git_ref, version_label) = if repo != KERNEL_REPO {
         let Some(branch) = args.branch.as_deref() else {

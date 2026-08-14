@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 
 use crate::consts::KERNEL_REPO;
@@ -18,9 +18,18 @@ const HELP_BANNER: &str = concat!(
     "|_|\\_\\____/ \\__,_|_|_|\\__,_/_/\\_\\",
     "\x1b[0m\n",
     "\x1b[38;2;0;215;215m",
-    "      Linux kernel builder",
+    "      Linux and BSD kernel builder",
     "\x1b[0m"
 );
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum BuildOs {
+    #[default]
+    Linux,
+    Freebsd,
+    Netbsd,
+}
 
 #[derive(Parser, Serialize, Deserialize)]
 pub struct LsArgs {
@@ -37,6 +46,13 @@ pub struct LsArgs {
 pub struct BuildArgs {
     #[arg(value_name = "VERSION", help = "Specify the kernel version to build.")]
     pub kernel_version: Option<String>,
+    #[arg(long, value_enum, default_value_t = BuildOs::Linux, help = "Operating system kernel to build.")]
+    pub os: BuildOs,
+    #[arg(
+        long,
+        help = "Build and export a complete bootable BSD rootfs bundle with bsdkrun-agent."
+    )]
+    pub bundle: bool,
     #[arg(
         short = 'r',
         long = "repo",
@@ -119,7 +135,7 @@ pub struct BuildArgs {
     name = "kbuildx",
     version,
     before_help = HELP_BANNER,
-    about = "A tool for building custom Linux kernels."
+    about = "A tool for building custom Linux, FreeBSD, and NetBSD kernels."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -172,5 +188,17 @@ mod tests {
         };
 
         assert!(args.host);
+    }
+
+    #[test]
+    fn bsd_bundle_target_can_be_selected() {
+        let cli = Cli::try_parse_from(["kbuildx", "build", "15.1", "--os", "freebsd", "--bundle"])
+            .unwrap();
+        let Some(Command::Build(args)) = cli.cmd else {
+            panic!("expected build command");
+        };
+
+        assert_eq!(args.os, super::BuildOs::Freebsd);
+        assert!(args.bundle);
     }
 }

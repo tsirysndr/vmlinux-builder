@@ -1,6 +1,6 @@
 # kbuildx
 
-`kbuildx` is an interactive Linux kernel builder. It combines a Ratatui terminal interface with a scriptable command-line API, manages kernel source checkouts, applies a built-in kernel configuration, and produces boot and module artifacts.
+`kbuildx` is an interactive Linux and BSD kernel builder. It combines a Ratatui terminal interface with a scriptable command-line API, manages source checkouts, applies kernel configurations, and produces kernel, boot, module, and rootfs artifacts.
 
 On Linux, builds can run directly on hosts with `apk`, `apt-get`, or `dnf`. Alpine is detected automatically. Otherwise, `kbuildx` creates and reuses an Alpine microVM through [bsdkrun](https://github.com/tsirysndr/bsdkrun). macOS always uses bsdkrun.
 
@@ -16,6 +16,8 @@ On Linux, builds can run directly on hosts with `apk`, `apt-get`, or `dnf`. Alpi
 - Optional modules, initrd, arm64 Image, uImage, and uInitrd output.
 - Persistent kernel checkout reused across builds.
 - Native Linux builds with `apk`, `apt-get`, or `dnf`, plus a bsdkrun fallback.
+- Native FreeBSD and NetBSD source builds inside persistent bsdkrun machines.
+- Optional bootable BSD rootfs bundles with bsdkrun-agent injected.
 
 ## Installation
 
@@ -155,13 +157,52 @@ kbuildx build 6.6.y
 
 This resolves to the upstream `linux-6.6.y` branch and uses `6.6` in artifact names.
 
+### Build FreeBSD or NetBSD
+
+BSD builds always run inside the matching persistent bsdkrun machine:
+
+```sh
+kbuildx build 15.1 --os freebsd
+kbuildx build 10.1 --os netbsd
+kbuildx build current --os netbsd
+```
+
+FreeBSD release numbers resolve to `releng/<version>` in the official source repository. NetBSD releases resolve to `netbsd-<version>-RELEASE`, while `current` resolves to `trunk`. Override either source with the existing `--repo`, `--branch`, and `--version` options.
+
+The default kernel configuration is selected for the guest architecture. Pass `--defconfig` to select another FreeBSD kernel configuration or NetBSD kernel configuration:
+
+```sh
+kbuildx build 15.1 --os freebsd --defconfig GENERIC
+kbuildx build current --os netbsd --defconfig MICROVM
+```
+
+### Build a complete BSD bootable bundle
+
+Add `--bundle` to build a compressed bootable root filesystem alongside the kernel:
+
+```sh
+kbuildx build 15.1 --os freebsd --bundle --cpus 8 --memory 12288
+kbuildx build current --os netbsd --bundle --cpus 8 --memory 12288
+```
+
+The bundle process follows bsdkrun's image workflows:
+
+1. Build the matching kernel from source inside FreeBSD or NetBSD.
+2. Assemble a native UFS or FFS root filesystem.
+3. Copy the running image's `bsdkrun-agent` into the rootfs.
+4. Install and enable the native rc.d startup service.
+5. Export the raw image to the host.
+6. Compress the image on the host exactly like bsdkrun's image workflows: `xz -T0 -6` for FreeBSD arm64, or `gzip -9` for FreeBSD amd64 and NetBSD, then generate checksums on the host.
+
+BSD build machines use persistent 40 GiB volumes so source, packages, and build state survive subsequent invocations. `--host` and Linux-specific config/module/initrd/uImage flags are rejected for BSD targets.
+
 ### Select sandbox resources
 
 ```sh
 kbuildx build 7.1.8 --cpus 8 --memory 8192
 ```
 
-Defaults are 2 vCPUs and 2048 MiB. `--mem` is an alias for `--memory`. Resource flags apply only when a bsdkrun sandbox is needed; direct host builds use the host resources.
+The CPU default is the host's available logical CPU count; memory defaults to 2048 MiB. `--mem` is an alias for `--memory`. Resource flags apply only when a bsdkrun sandbox is needed; direct host builds use the host resources.
 
 ### Build directly on a Linux host
 
@@ -298,6 +339,12 @@ The sandbox persists its `/linux` checkout between invocations. Requested CPU an
 
 The bsdkrun executable must be discoverable through `PATH` or `BSDKRUN_BIN`.
 
+### BSD build machines
+
+FreeBSD and NetBSD use separate persistent bsdkrun machines named from the OS and requested version. kbuildx boots the requested BSD image, installs native source-build dependencies with `pkg` or `pkgin`, updates the source checkout, and invokes the operating system's own build tools.
+
+Prepared bsdkrun BSD images already contain the guest agent required by `bsdkrun exec`. Complete bundles copy that agent from the running build machine into the assembled rootfs and enable it at boot.
+
 ## Checkout behavior
 
 For an existing valid checkout, `kbuildx`:
@@ -346,6 +393,26 @@ Optional outputs include:
 - `modules-<kernelrelease>.tar.gz` and checksum
 
 Artifacts live in `./linux` during direct host builds. Sandbox builds keep their working files in `/linux` and copy the finished `vmlinux-<version>.<architecture>` plus its SHA-256 file into the host's `./linux` directory before returning successfully.
+
+BSD kernel-only builds export:
+
+```text
+./freebsd/freebsd-<version>.<architecture>.kernel
+./freebsd/freebsd-<version>.<architecture>.kernel.sha256
+./netbsd/netbsd-<version>.<architecture>.kernel
+./netbsd/netbsd-<version>.<architecture>.kernel.sha256
+```
+
+With `--bundle`, the matching directory also receives:
+
+```text
+<os>-<version>.<architecture>.img.gz
+<os>-<version>.<architecture>.img.gz.sha256
+freebsd-<version>.aarch64.img.xz
+freebsd-<version>.aarch64.img.xz.sha256
+```
+
+The `.xz` variant is used only for FreeBSD arm64; other BSD bundles use `.gz`.
 
 ## GitHub Actions E2E tests
 
