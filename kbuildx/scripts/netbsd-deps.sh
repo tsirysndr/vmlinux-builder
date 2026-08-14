@@ -2,6 +2,8 @@
 set -eu
 
 export PATH=/usr/pkg/bin:/usr/pkg/sbin:/sbin:/usr/sbin:/bin:/usr/bin
+package_release=${1:-}
+case "$package_release" in current|trunk) package_release=;; esac
 if command -v resize_ffs >/dev/null 2>&1; then
     printf '%s\n' 'Growing NetBSD FFS root filesystem to fill the virtual disk'
     df -h /
@@ -16,7 +18,11 @@ case "$(uname -m)" in
     aarch64|arm64) pkg_arch=aarch64 ;;
     *) printf '%s\n' "Unsupported NetBSD architecture: $(uname -m)" >&2; exit 1 ;;
 esac
-package_path="http://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$pkg_arch/11.0/All/"
+if [ -z "$package_release" ]; then
+    host_release=$(uname -r)
+    package_release=${host_release%%.*}.0
+fi
+package_path="http://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$pkg_arch/$package_release/All/"
 # The prepared bsdkrun NetBSD image has no CA bundle and cannot install one
 # into its read-only certificate layout; use the official CDN over HTTP for
 # this disposable CI build guest so pkg_add/pkgin can bootstrap successfully.
