@@ -1,0 +1,92 @@
+name: BSD end-to-end tests
+
+on:
+  push:
+    tags-ignore:
+      - "kbuildx-v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bsd-e2e:
+    name: Build ${{ matrix.name }} kernel
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: FreeBSD 15.1
+            os: freebsd
+            version: "15.1"
+            artifact: freebsd/freebsd-15.1.x86_64.kernel
+          - name: NetBSD 10.1
+            os: netbsd
+            version: "10.1"
+            artifact: netbsd/netbsd-10.1.x86_64.kernel
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          set -eux
+          test -e /dev/kvm || { echo "no /dev/kvm on this runner"; exit 1; }
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo chmod 0666 /dev/kvm
+          ls -l /dev/kvm
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install bsdkrun CLI
+        run: npm install -g @bsdkrun/cli
+
+      - name: Verify bsdkrun runtime
+        run: bsdkrun probe
+
+      - name: Cache BSD images
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/bsdkrun
+          key: bsdkrun-${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-${{ matrix.version }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: kbuildx -> target
+
+      - name: Build kbuildx CLI
+        run: cargo build --release --locked
+        working-directory: ./kbuildx
+
+      - name: Build ${{ matrix.name }} kernel
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ./target/release/kbuildx build "${{ matrix.version }}" \
+            --os "${{ matrix.os }}" \
+            --cpus "$(nproc)" \
+            --memory 8192
+        working-directory: ./kbuildx
+
+      - name: Verify kernel artifacts
+        shell: bash
+        run: |
+          set -euxo pipefail
+          artifact="${{ matrix.artifact }}"
+          test -s "$artifact"
+          test -s "$artifact.sha256"
+          cd "$(dirname "$artifact")"
+          sha256sum --check "$(basename "$artifact").sha256"
+        working-directory: ./kbuildx

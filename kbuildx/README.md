@@ -434,6 +434,14 @@ A separate host E2E workflow runs directly on `ubuntu-latest`:
 - Verifies that `--host` is exposed.
 - Performs a full Linux 7.1.8 build with Ubuntu's `apt-get` toolchain.
 
+The BSD E2E workflow runs a kernel-only build matrix on KVM-enabled `ubuntu-latest` runners:
+
+- Builds FreeBSD 15.1 and NetBSD 10.1 in their matching bsdkrun guests.
+- Uses all runner CPUs and 8192 MiB of guest memory.
+- Caches downloaded bsdkrun BSD images and Rust build output.
+- Verifies each exported kernel and its SHA-256 checksum.
+- Does not enable `--bundle`, so it does not assemble or compress rootfs images.
+
 ## Troubleshooting
 
 ### `could not find the "bsdkrun" binary`
