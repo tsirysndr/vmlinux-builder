@@ -2,11 +2,7 @@
 set -eu
 
 version=$1; repo=$2; ref=$3; label=$4; requested_config=$5; bundle=$6
-export PATH=/usr/pkg/bin:/sbin:/usr/sbin:/bin:/usr/bin
-# The release userland's /usr/bin/cc may not match the rolling source tree;
-# use the pkgsrc GCC toolchain explicitly for host-tool bootstrap.
-export CC=gcc
-export HOST_CC=gcc
+export PATH=/usr/pkg/gcc15/bin:/usr/pkg/bin:/sbin:/usr/sbin:/bin:/usr/bin
 work=/root/kbuildx
 src=$work/netbsd-src
 obj=$work/netbsd-obj
