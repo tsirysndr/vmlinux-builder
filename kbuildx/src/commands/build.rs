@@ -47,9 +47,8 @@ pub fn build_kernel(args: BuildArgs) -> Result<()> {
         value(repo),
         muted(&version)
     );
-    println!("{}", KernelConfig::default().to_string());
 
-    let sbx = start_sandbox()?;
+    let sbx = start_sandbox(args.cpus, args.memory)?;
     install_deps(&sbx)?;
     sync_kernel(&sbx, repo, &version)?;
     println!(
@@ -57,6 +56,7 @@ pub fn build_kernel(args: BuildArgs) -> Result<()> {
         step_label("[3/3 KERNEL]"),
         success("Kernel checkout is ready")
     );
+    start_compilation(&sbx)?;
 
     Ok(())
 }
@@ -114,7 +114,7 @@ fn fetch_last_version(repo: &str) -> String {
     versions.last().unwrap_or(&"latest").to_string()
 }
 
-fn start_sandbox() -> Result<Sandbox> {
+fn start_sandbox(cpus: u32, memory: u32) -> Result<Sandbox> {
     const SANDBOX_ID: &str = "kbuildx_sandbox";
     let sandbox = Sandbox::get(SANDBOX_ID);
 
@@ -125,7 +125,11 @@ fn start_sandbox() -> Result<Sandbox> {
             warning("Existing sandbox unavailable:"),
             s
         );
-        let sandbox = Sandbox::linux("alpine:latest").name(SANDBOX_ID).create()?;
+        let sandbox = Sandbox::linux("alpine:latest")
+            .name(SANDBOX_ID)
+            .cpus(cpus)
+            .mem(memory)
+            .create()?;
         println!(
             "{} {} {}",
             step_label("[1/3 SANDBOX]"),
@@ -137,20 +141,23 @@ fn start_sandbox() -> Result<Sandbox> {
 
     let sandbox = sandbox.unwrap();
     println!(
-        "{} {} {}",
+        "{} {} {} ({} vCPU, {} MiB)",
         step_label("[1/3 SANDBOX]"),
-        action("Starting sandbox:"),
-        value(&sandbox.id())
+        action("Configuring sandbox:"),
+        value(&sandbox.id()),
+        cpus,
+        memory
     );
-    if !sandbox.is_running()? {
-        sandbox.start()?;
-    } else {
+    if sandbox.is_running()? {
         println!(
             "{} {}",
             step_label("[1/3 SANDBOX]"),
-            success("Sandbox is already running.")
+            action("Restarting sandbox to apply resources.")
         );
+        sandbox.stop()?;
     }
+    sandbox.update().cpus(cpus).mem(memory).apply()?;
+    sandbox.start()?;
 
     Ok(sandbox)
 }
@@ -258,6 +265,50 @@ printf '%s%s\033[0m\n' "$7" "$current_commit"
         "{} {} {}",
         kernel_label,
         success("Kernel sync exit code:"),
+        success(&result.exit_code.to_string())
+    );
+
+    Ok(())
+}
+
+fn start_compilation(sbx: &Sandbox) -> Result<()> {
+    let kernel_config = KernelConfig::default().to_string();
+    println!(
+        "{} {} {}",
+        step_label("[4/4 BUILD]"),
+        action("Building Linux kernel with config:"),
+        value("default")
+    );
+
+    let result = sbx
+        .command("sh")
+        .args([
+            "-c",
+            r#"set -e
+kernel_dir="${PWD%/}/linux"
+if ! git config --global --get-all safe.directory | grep -Fxq "$kernel_dir"; then
+    git config --global --add safe.directory "$kernel_dir"
+fi
+cd "$kernel_dir"
+# Write the kernel config to .config
+printf '%s\n' "$1" > .config
+# Build the kernel
+make -j"$(nproc)" olddefconfig
+make -j"$(nproc)"
+"#,
+            "sh",
+            &kernel_config,
+        ])
+        .stdout(std::io::stdout())
+        .stderr(std::io::stderr())
+        .tty(true)
+        .run()?
+        .ok_or_err()?;
+
+    println!(
+        "{} {} {}",
+        step_label("[4/4 BUILD]"),
+        success("Kernel build exit code:"),
         success(&result.exit_code.to_string())
     );
 

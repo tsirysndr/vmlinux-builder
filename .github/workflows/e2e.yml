@@ -77,5 +77,5 @@ jobs:
           sudo prlimit --pid "$$" --nofile="$fd_limit:$fd_limit"
           echo "File descriptor limit: $(ulimit -n)"
           echo "bsdkrun binary: $(command -v bsdkrun)"
-          ./target/release/kbuildx build 6.6.1
+          ./target/release/kbuildx build 6.6.1 --cpus "$(nproc)"
         working-directory: ./kbuildx

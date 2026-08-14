@@ -38,6 +38,22 @@ pub struct BuildArgs {
         help = "Specify a custom kernel repository URL."
     )]
     pub repo: String,
+    #[arg(
+        long,
+        default_value_t = 2,
+        value_parser = clap::value_parser!(u32).range(1..),
+        help = "Number of virtual CPUs assigned to the build sandbox."
+    )]
+    pub cpus: u32,
+    #[arg(
+        long,
+        visible_alias = "mem",
+        value_name = "MIB",
+        default_value_t = 2048,
+        value_parser = clap::value_parser!(u32).range(1..),
+        help = "Memory assigned to the build sandbox, in MiB."
+    )]
+    pub memory: u32,
 }
 
 #[derive(Parser, Serialize, Deserialize)]
@@ -56,4 +72,35 @@ pub struct Cli {
 pub enum Command {
     Ls(LsArgs),
     Build(BuildArgs),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cli, Command};
+    use clap::Parser;
+
+    #[test]
+    fn build_resources_have_defaults() {
+        let cli = Cli::try_parse_from(["kbuildx", "build", "6.6.1"]).unwrap();
+        let Command::Build(args) = cli.cmd else {
+            panic!("expected build command");
+        };
+
+        assert_eq!(args.cpus, 2);
+        assert_eq!(args.memory, 2048);
+    }
+
+    #[test]
+    fn build_resources_can_be_overridden() {
+        let cli = Cli::try_parse_from([
+            "kbuildx", "build", "6.6.1", "--cpus", "4", "--memory", "4096",
+        ])
+        .unwrap();
+        let Command::Build(args) = cli.cmd else {
+            panic!("expected build command");
+        };
+
+        assert_eq!(args.cpus, 4);
+        assert_eq!(args.memory, 4096);
+    }
 }
