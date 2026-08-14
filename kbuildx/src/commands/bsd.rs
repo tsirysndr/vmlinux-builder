@@ -95,10 +95,7 @@ pub fn build_bsd(args: BuildArgs) -> Result<()> {
     {
         bail!("Linux config, module, initrd, and uImage options cannot be used with BSD builds");
     }
-    let version = args
-        .kernel_version
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("a FreeBSD or NetBSD version is required"))?;
+    let version = args.kernel_version.as_deref().unwrap_or("current");
     let os = args.os;
     let os_name = match os {
         BuildOs::Freebsd => "freebsd",
@@ -170,14 +167,12 @@ fn start_bsd_sandbox(os: BuildOs, version: &str, cpus: u32, memory: u32) -> Resu
             // Use the stable NetBSD 10.1 guest image, matching the package
             // repository used by the bsdkrun workflows. The requested version
             // still selects the source ref and artifact label below.
-            let guest_version = machine_version;
-            let output = Command::new(bsdkrun_binary())
+            let mut command = Command::new(bsdkrun_binary());
+            command
                 .arg(os_name)
                 .arg("-d")
                 .arg("--name")
                 .arg(&name)
-                .arg("--version")
-                .arg(guest_version)
                 .arg("--cpus")
                 .arg(cpus.to_string())
                 .arg("--mem")
@@ -187,9 +182,11 @@ fn start_bsd_sandbox(os: BuildOs, version: &str, cpus: u32, memory: u32) -> Resu
                 .arg("--volume")
                 .arg(&name)
                 .stdout(Stdio::piped())
-                .stderr(Stdio::inherit())
-                .output()
-                .context("creating BSD build sandbox")?;
+                .stderr(Stdio::inherit());
+            if !(os == BuildOs::Netbsd && version == "current") {
+                command.arg("--version").arg(machine_version);
+            }
+            let output = command.output().context("creating BSD build sandbox")?;
             if !output.status.success() {
                 bail!("unable to create {os_name} build sandbox");
             }

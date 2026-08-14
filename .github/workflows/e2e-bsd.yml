@@ -26,8 +26,7 @@ jobs:
             artifact: freebsd/freebsd-15.1.x86_64.kernel
           - name: NetBSD 10.1
             os: netbsd
-            version: "10.1"
-            artifact: netbsd/netbsd-10.1.x86_64.kernel
+            artifact: netbsd/netbsd-current.x86_64.kernel
 
     steps:
       - name: Check out repository
