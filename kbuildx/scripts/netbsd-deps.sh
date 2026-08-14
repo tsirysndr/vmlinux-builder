@@ -7,9 +7,11 @@ case "$(uname -m)" in
     amd64|x86_64) pkg_arch=x86_64 ;;
     *) pkg_arch=aarch64 ;;
 esac
-case "$version" in
-    current|trunk) pkg_release=10.1 ;;
-    *) pkg_release=${version%%-*} ;;
+host_release=$(uname -r)
+case "$host_release" in
+    11.99.*) pkg_release=11.0 ;;
+    10.*) pkg_release=${host_release%%-*} ;;
+    *) pkg_release=${host_release%%-*} ;;
 esac
 bootstrap_path="http://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$pkg_arch/$pkg_release/All/"
 secure_path="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$pkg_arch/$pkg_release/All/"
