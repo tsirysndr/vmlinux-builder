@@ -43,8 +43,11 @@ if [ -e /etc/ssl/cert.pem ] || [ -e /etc/openssl/certs/ca-certificates.crt ]; th
     pkgin -y update
 fi
 if ! pkgin -y install git-base; then
-    # NetBSD pkg_install can report post-install warnings for base files while
-    # still completing the requested package. Continue only when Git is usable.
+    # pkgin may roll back the transaction after a non-essential package
+    # post-install warning. Retry the requested package directly, forcing the
+    # install from the already configured binary repository.
+    printf '%s\n' 'pkgin failed; retrying git-base with pkg_add -f'
+    pkg_add -f git-base || true
     if ! command -v git >/dev/null 2>&1; then
         printf '%s\n' 'pkgin failed and git is unavailable' >&2
         exit 1
