@@ -406,10 +406,12 @@ fn default_bsd_ref(os: BuildOs, version: &str) -> String {
             "trunk".to_string()
         }
         BuildOs::Netbsd => format!(
-            "netbsd-{}-RELEASE",
+            "netbsd-{}",
             version
                 .trim_start_matches("NetBSD-")
-                .replace(['.', '-'], "-")
+                .split(['.', '-'])
+                .next()
+                .unwrap_or(version)
         ),
         BuildOs::Linux => unreachable!(),
     }
@@ -453,15 +455,9 @@ mod tests {
 
     #[test]
     fn netbsd_versions_map_to_release_tags() {
-        assert_eq!(
-            default_bsd_ref(BuildOs::Netbsd, "10.1"),
-            "netbsd-10-1-RELEASE"
-        );
+        assert_eq!(default_bsd_ref(BuildOs::Netbsd, "10.1"), "netbsd-10");
         assert_eq!(default_bsd_ref(BuildOs::Netbsd, "current"), "trunk");
-        assert_eq!(
-            default_bsd_ref(BuildOs::Netbsd, "11.0"),
-            "netbsd-11-0-RELEASE"
-        );
+        assert_eq!(default_bsd_ref(BuildOs::Netbsd, "11.0"), "netbsd-11");
     }
 
     #[test]
