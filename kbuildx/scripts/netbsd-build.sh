@@ -6,6 +6,9 @@ export PATH=/usr/pkg/gcc15/bin:/usr/pkg/bin:/sbin:/usr/sbin:/bin:/usr/bin
 mkdir -p /tmp/netbsd-bin
 for tool in as ld ar ranlib nm strip; do
     target=$(command -v "x86_64--netbsd-$tool" 2>/dev/null || true)
+    if [ -z "$target" ]; then
+        target=$(find /usr/pkg -type f -name "*$tool" -perm -111 2>/dev/null | head -n 1 || true)
+    fi
     if [ -n "$target" ]; then ln -sf "$target" "/tmp/netbsd-bin/$tool"; fi
 done
 export PATH=/tmp/netbsd-bin:$PATH
