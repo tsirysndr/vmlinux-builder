@@ -12,7 +12,7 @@ jobs:
   e2e:
     name: Build and test CLI
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
 
     steps:
       - name: Check out repository
@@ -63,11 +63,29 @@ jobs:
         run: cargo build --release --locked
         working-directory: ./kbuildx
 
+      - name: Run Rust tests
+        run: cargo test --locked
+        working-directory: ./kbuildx
+
+      - name: Test build options
+        shell: bash
+        run: |
+          set -o pipefail
+          ./target/release/kbuildx build --help | tee /tmp/kbuildx-build-help.txt
+          grep -F -- '--merge-config' /tmp/kbuildx-build-help.txt
+          grep -F -- '--defconfig' /tmp/kbuildx-build-help.txt
+          grep -F -- '--initrd' /tmp/kbuildx-build-help.txt
+          grep -F -- '--modules' /tmp/kbuildx-build-help.txt
+          grep -F -- '--uimage' /tmp/kbuildx-build-help.txt
+          grep -F -- '--cpus' /tmp/kbuildx-build-help.txt
+          grep -F -- '--memory' /tmp/kbuildx-build-help.txt
+        working-directory: ./kbuildx
+
       - name: Test version listing
         run: ./target/release/kbuildx ls --refresh
         working-directory: ./kbuildx
 
-      - name: Test kernel checkout
+      - name: Test full kernel build
         shell: bash
         run: |
           # On Linux, bsdkrun's virtio-fs backend pins one O_PATH descriptor
@@ -77,5 +95,10 @@ jobs:
           sudo prlimit --pid "$$" --nofile="$fd_limit:$fd_limit"
           echo "File descriptor limit: $(ulimit -n)"
           echo "bsdkrun binary: $(command -v bsdkrun)"
-          ./target/release/kbuildx build 6.6.1 --cpus "$(nproc)"
+          host_memory_mib="$(awk '/MemTotal/ { print int($2 / 1024) }' /proc/meminfo)"
+          guest_memory_mib="$((host_memory_mib / 2))"
+          echo "Sandbox resources: $(nproc) vCPU, ${guest_memory_mib} MiB"
+          ./target/release/kbuildx build 7.1.8 \
+            --cpus "$(nproc)" \
+            --memory "$guest_memory_mib"
         working-directory: ./kbuildx

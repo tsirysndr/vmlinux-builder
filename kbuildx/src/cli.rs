@@ -30,7 +30,7 @@ pub struct LsArgs {
 #[derive(Parser, Serialize, Deserialize)]
 pub struct BuildArgs {
     #[arg(value_name = "VERSION", help = "Specify the kernel version to build.")]
-    pub version: Option<String>,
+    pub kernel_version: Option<String>,
     #[arg(
         short = 'r',
         long = "repo",
@@ -38,6 +38,47 @@ pub struct BuildArgs {
         help = "Specify a custom kernel repository URL."
     )]
     pub repo: String,
+    #[arg(
+        long,
+        visible_alias = "ref",
+        help = "Branch or tag to build from a custom repository."
+    )]
+    pub branch: Option<String>,
+    #[arg(
+        long = "version",
+        value_name = "LABEL",
+        help = "Version label used in artifact filenames for custom builds."
+    )]
+    pub version_label: Option<String>,
+    #[arg(
+        long,
+        visible_alias = "config",
+        value_name = "FILE_OR_URL",
+        help = "Merge a kernel config after the built-in defaults."
+    )]
+    pub merge_config: Option<String>,
+    #[arg(long, help = "Use a board defconfig as the base configuration.")]
+    pub defconfig: Option<String>,
+    #[arg(long, help = "Generate an initrd and arm64 uInitrd.")]
+    pub initrd: bool,
+    #[arg(long, help = "Build and archive loadable modules.")]
+    pub modules: bool,
+    #[arg(long, help = "Generate a U-Boot uImage on arm64.")]
+    pub uimage: bool,
+    #[arg(long, default_value = "arm", help = "mkimage architecture.")]
+    pub uimage_arch: String,
+    #[arg(long, default_value = "linux", help = "mkimage operating system.")]
+    pub uimage_os: String,
+    #[arg(long, default_value = "kernel", help = "mkimage image type.")]
+    pub uimage_type: String,
+    #[arg(long, default_value = "none", help = "mkimage compression type.")]
+    pub uimage_comp: String,
+    #[arg(long, default_value = "0x41000000", help = "uImage load address.")]
+    pub uimage_load: String,
+    #[arg(long, default_value = "0x41000000", help = "uImage entry point.")]
+    pub uimage_entry: String,
+    #[arg(long, help = "Override the uImage display name.")]
+    pub uimage_name: Option<String>,
     #[arg(
         long,
         default_value_t = 2,
