@@ -57,6 +57,7 @@ fi
 mkdir -p /usr/pkg/etc/pkgin
 printf '%s\n' "$package_path" > /usr/pkg/etc/pkgin/repositories.conf
 
-pkgin -y update
-pkgin install -y git
+export ASSUME_ALWAYS_YES=yes
+pkgin update
+pkgin install git
 git --version
