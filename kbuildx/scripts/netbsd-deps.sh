@@ -4,11 +4,11 @@ set -eu
 export PATH=/usr/pkg/bin:/usr/pkg/sbin:/sbin:/usr/sbin:/bin:/usr/bin
 data_disk=/dev/ld1a
 if ! mount | grep -q ' /root/kbuildx '; then
-    if ! fsck_ffs -n "$data_disk" >/dev/null 2>&1; then
-        newfs "$data_disk"
-    fi
     mkdir -p /root/kbuildx
-    mount "$data_disk" /root/kbuildx
+    if ! mount "$data_disk" /root/kbuildx 2>/dev/null; then
+        newfs "$data_disk"
+        mount "$data_disk" /root/kbuildx
+    fi
 fi
 
 package_release=${1:-}
