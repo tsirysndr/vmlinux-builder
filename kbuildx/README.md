@@ -118,7 +118,7 @@ The editor starts with the currently selected kernel version, CPU count, and mem
 
 ### Live build logs
 
-Build stdout and stderr are read concurrently as raw chunks and rendered as they arrive, including carriage-return progress updates that do not end with a newline. This preserves the live compilation experience of non-interactive mode. The log view follows the newest output automatically. Scrolling upward pauses following; press `End` to return to real-time output.
+Build stdout and stderr share a real pseudo-terminal and are read as raw chunks, so nested tools see the same terminal environment as normal CLI mode. Output is rendered as it arrives, including carriage-return progress updates that do not end with a newline. The log view follows the newest output automatically. Scrolling upward pauses following; press `End` to return to real-time output.
 
 Press `l` to expand the logs across the terminal and press `l` again to return to the home screen. Log scrolling, auto-follow, and build controls remain available in fullscreen mode.
 

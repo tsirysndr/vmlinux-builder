@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeMap,
+    fs::File,
     io::{self, Read},
     process::{Child, Command, Stdio},
     sync::mpsc::{self, Receiver},
@@ -215,7 +216,8 @@ impl App {
         } else {
             command.args(&self.build_args);
         }
-        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        let (output, child_stdout, child_stderr) = output_pty()?;
+        command.stdout(child_stdout).stderr(child_stderr);
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -225,15 +227,11 @@ impl App {
             command.arg("--set-config").arg(format!("{name}={value}"));
         }
 
-        let mut child = command.spawn().context("starting kernel build")?;
-        let stdout = child.stdout.take().context("capturing build stdout")?;
-        let stderr = child.stderr.take().context("capturing build stderr")?;
+        let child = command.spawn().context("starting kernel build")?;
+        drop(command);
         let (tx, rx) = mpsc::channel();
         let mut readers = Vec::new();
-        for reader in [
-            Box::new(stdout) as Box<dyn Read + Send>,
-            Box::new(stderr) as Box<dyn Read + Send>,
-        ] {
+        for reader in [Box::new(output) as Box<dyn Read + Send>] {
             let tx = tx.clone();
             readers.push(thread::spawn(move || {
                 let mut reader = reader;
@@ -526,6 +524,39 @@ impl App {
             _ => {}
         }
     }
+}
+
+#[cfg(unix)]
+fn output_pty() -> Result<(File, Stdio, Stdio)> {
+    use std::os::fd::FromRawFd;
+
+    let mut master = -1;
+    let mut slave = -1;
+    // SAFETY: openpty initializes both descriptors on success. Each descriptor
+    // is immediately wrapped in exactly one File, transferring ownership.
+    if unsafe {
+        libc::openpty(
+            &mut master,
+            &mut slave,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error()).context("opening build pseudo-terminal");
+    }
+    // SAFETY: openpty returned owned, valid file descriptors.
+    let master = unsafe { File::from_raw_fd(master) };
+    // SAFETY: openpty returned owned, valid file descriptors.
+    let slave = unsafe { File::from_raw_fd(slave) };
+    let stderr = slave.try_clone().context("cloning build pseudo-terminal")?;
+    Ok((master, Stdio::from(slave), Stdio::from(stderr)))
+}
+
+#[cfg(not(unix))]
+fn output_pty() -> Result<(File, Stdio, Stdio)> {
+    anyhow::bail!("the TUI build log pseudo-terminal is unsupported on this platform")
 }
 
 fn shell_split(input: &str) -> std::result::Result<Vec<String>, &'static str> {
@@ -1040,7 +1071,9 @@ fn status_style(status: &str) -> Style {
 mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    use super::{App, Modal, aligned_logo_lines, fuzzy_indices, shell_split, version_key};
+    use super::{
+        App, Modal, aligned_logo_lines, fuzzy_indices, output_pty, shell_split, version_key,
+    };
 
     #[test]
     fn fuzzy_search_prioritizes_close_matches() {
@@ -1101,6 +1134,30 @@ mod tests {
 
         assert_eq!(app.logs, ["compile 20%"]);
         assert_eq!(app.partial_log, "next");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn build_output_uses_a_real_terminal() {
+        use std::io::Read;
+        use std::process::Command;
+
+        let (mut output, stdout, stderr) = output_pty().unwrap();
+        let status = Command::new("sh")
+            .args([
+                "-c",
+                "test -t 1 && test -t 2 && printf 'stdout\\nstderr\\n' >&2",
+            ])
+            .stdout(stdout)
+            .stderr(stderr)
+            .status()
+            .unwrap();
+        let mut captured = String::new();
+        output.read_to_string(&mut captured).unwrap();
+
+        assert!(status.success(), "child failed; captured: {captured:?}");
+        assert!(captured.contains("stdout"), "captured: {captured:?}");
+        assert!(captured.contains("stderr"), "captured: {captured:?}");
     }
 
     #[test]
