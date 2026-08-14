@@ -22,19 +22,9 @@ if ! command -v pkgin >/dev/null 2>&1; then
     pkg_add pkgin
 fi
 mkdir -p /usr/pkg/etc/pkgin
-# The minimal NetBSD image can contain an incompatible manpage symlink/layout;
-# package extraction needs a writable pkgsrc-owned tree.
-rm -rf /usr/pkg/man
-mkdir -p /usr/pkg/man/man1 /usr/pkg/man/man3 /usr/pkg/man/man5 /usr/pkg/man/man7
 export PKG_PATH="$package_path"
 printf '%s\n' "$package_path" > /usr/pkg/etc/pkgin/repositories.conf
 pkgin -y update
-# Install xmlcatmgr separately: its post-install step may replace the man
-# directory after our initial layout setup. Recreate it before git-base pulls
-# in curl's large manpage set.
-pkgin -y install xmlcatmgr || true
-rm -rf /usr/pkg/man
-mkdir -p /usr/pkg/man/man1 /usr/pkg/man/man3 /usr/pkg/man/man5 /usr/pkg/man/man7
 if ! pkgin -y install git-base; then
     # pkgin may roll back the transaction after a non-essential package
     # post-install warning. Retry the requested package directly, forcing the
