@@ -2,6 +2,8 @@ use std::{
     io::Write,
     path::Path,
     process::{Command, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, bail};
@@ -17,6 +19,7 @@ use crate::{
 const FREEBSD_REPO: &str = "https://git.FreeBSD.org/src.git";
 const NETBSD_REPO: &str = "https://github.com/NetBSD/src.git";
 const BSD_DISK_SIZE: &str = "40G";
+const BSD_AGENT_TIMEOUT: Duration = Duration::from_secs(180);
 
 fn step(label: &str) -> String {
     label.color(Rgb(125, 86, 244)).bold().to_string()
@@ -151,8 +154,8 @@ fn start_bsd_sandbox(os: BuildOs, version: &str, cpus: u32, memory: u32) -> Resu
         BuildOs::Linux => unreachable!(),
     };
     let name = format!("kbuildx_{}_{}", os_name, safe_label(version));
-    let sandbox = match Sandbox::get(&name) {
-        Ok(sandbox) => sandbox,
+    let (sandbox, created) = match Sandbox::get(&name) {
+        Ok(sandbox) => (sandbox, false),
         Err(_) => {
             println!(
                 "{} {}",
@@ -188,14 +191,17 @@ fn start_bsd_sandbox(os: BuildOs, version: &str, cpus: u32, memory: u32) -> Resu
                 .find(|line| !line.trim().is_empty())
                 .map(|line| line.trim().to_string())
                 .ok_or_else(|| anyhow::anyhow!("bsdkrun did not return a sandbox id"))?;
-            Sandbox::get(&id)?
+            (Sandbox::get(&id)?, true)
         }
     };
-    if sandbox.is_running()? {
-        sandbox.stop()?;
+    if !created {
+        if sandbox.is_running()? {
+            sandbox.stop()?;
+        }
+        sandbox.update().cpus(cpus).mem(memory).apply()?;
+        sandbox.start()?;
     }
-    sandbox.update().cpus(cpus).mem(memory).apply()?;
-    sandbox.start()?;
+    wait_for_bsd_agent(&sandbox)?;
     println!(
         "{} {} {}",
         step("[1/4 SANDBOX]"),
@@ -203,6 +209,43 @@ fn start_bsd_sandbox(os: BuildOs, version: &str, cpus: u32, memory: u32) -> Resu
         value(sandbox.id())
     );
     Ok(BsdRuntime { sandbox })
+}
+
+fn wait_for_bsd_agent(sandbox: &Sandbox) -> Result<()> {
+    println!(
+        "{} {}",
+        step("[1/4 SANDBOX]"),
+        action("Waiting for BSD exec agent")
+    );
+    let started = Instant::now();
+    loop {
+        let status = Command::new(bsdkrun_binary())
+            .args(["exec", sandbox.id(), "/usr/bin/true"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .context("checking BSD exec agent readiness")?;
+        if status.success() {
+            return Ok(());
+        }
+        if !sandbox.is_running()? {
+            bail!(
+                "BSD build machine {} stopped before its exec agent became ready; inspect `bsdkrun logs --boot {}`",
+                sandbox.id(),
+                sandbox.id()
+            );
+        }
+        if started.elapsed() >= BSD_AGENT_TIMEOUT {
+            bail!(
+                "timed out after {}s waiting for the BSD exec agent on {}; inspect `bsdkrun logs --boot {}`",
+                BSD_AGENT_TIMEOUT.as_secs(),
+                sandbox.id(),
+                sandbox.id()
+            );
+        }
+        thread::sleep(Duration::from_secs(1));
+    }
 }
 
 fn install_bsd_dependencies(runtime: &BsdRuntime, os: BuildOs, version: &str) -> Result<()> {
