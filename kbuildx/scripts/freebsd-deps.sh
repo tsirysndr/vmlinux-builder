@@ -8,11 +8,14 @@ if ! mount | grep -q ' /root/kbuildx '; then
         mount "$data_disk" /root/kbuildx
     else
         printf '%s\n' 'Formatting FreeBSD build disk'
-        newfs -b 32768 -f 4096 -i 16384 "$data_disk"
+        # Optimisé pour FreeBSD sous libkrun : UFS2 (par défaut), inodes réduits, espace max
+        newfs -U -b 16384 -f 2048 -i 32768 -m 1 "$data_disk"
         printf '%s\n' 'Mounting new FreeBSD build disk'
-        mount "$data_disk" /root/kbuildx
+        # Montage avec support des Soft Updates et async pour booster les builds
+        mount -o async "$data_disk" /root/kbuildx
     fi
 fi
+
 
 marker=/var/db/kbuildx-root-grown
 if [ ! -e "$marker" ]; then

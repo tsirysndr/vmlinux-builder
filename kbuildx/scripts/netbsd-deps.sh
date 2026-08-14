@@ -11,7 +11,8 @@ if ! mount | grep -q ' /root/kbuildx '; then
         mount "$data_disk" /root/kbuildx
     else
         printf '%s\n' 'Formatting NetBSD build disk'
-        newfs -b 32768 -f 4096 -i 16384 "$data_disk"
+        # Optimisé pour libkrun : UFS2, blocs standards, densité d'inodes équilibrée
+        newfs -O 2 -b 16384 -f 2048 -i 32768 -m 1 "$data_disk"
         printf '%s\n' 'Mounting new NetBSD build disk'
         mount "$data_disk" /root/kbuildx
     fi
