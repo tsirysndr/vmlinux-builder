@@ -18,6 +18,31 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Enable KVM
+        run: |
+          set -eux
+          test -e /dev/kvm || { echo "no /dev/kvm on this runner"; exit 1; }
+          # Give the runner user access to /dev/kvm (default is root:kvm 0660).
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo chmod 0666 /dev/kvm
+          ls -l /dev/kvm
+
+      # PVH boots the guest with paging OFF. On Intel *without* VMX unrestricted
+      # guest (common on nested KVM), the host can't virtualize CR0.PG=0 and the
+      # guest triple-faults — which is what NetBSD MICROVM is hitting. Log it.
+      - name: KVM virtualization capabilities
+        run: |
+          set -eux
+          grep -m1 "model name" /proc/cpuinfo
+          grep -qm1 hypervisor /proc/cpuinfo && echo "nested (runs under a hypervisor)" || echo "bare metal"
+          grep -ochm1 -e vmx -e svm /proc/cpuinfo || true
+          echo -n "kvm_intel unrestricted_guest: "; cat /sys/module/kvm_intel/parameters/unrestricted_guest 2>/dev/null || echo "(kvm_intel not loaded)"
+          echo -n "kvm_intel nested: "; cat /sys/module/kvm_intel/parameters/nested 2>/dev/null || echo n/a
+          echo -n "kvm_amd nested: ";   cat /sys/module/kvm_amd/parameters/nested   2>/dev/null || echo n/a
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
