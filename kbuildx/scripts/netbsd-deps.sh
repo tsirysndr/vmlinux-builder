@@ -11,7 +11,11 @@ else
     printf '%s\n' 'NetBSD resize_ffs is unavailable; cannot use the expanded build disk' >&2
     exit 1
 fi
-pkg_arch=x86_64
+case "$(uname -m)" in
+    amd64|x86_64) pkg_arch=x86_64 ;;
+    aarch64|arm64) pkg_arch=aarch64 ;;
+    *) printf '%s\n' "Unsupported NetBSD architecture: $(uname -m)" >&2; exit 1 ;;
+esac
 package_path="http://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$pkg_arch/11.0/All/"
 # The prepared bsdkrun NetBSD image has no CA bundle and cannot install one
 # into its read-only certificate layout; use the official CDN over HTTP for
