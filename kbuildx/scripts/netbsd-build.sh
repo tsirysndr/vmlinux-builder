@@ -11,7 +11,9 @@ for tool in as ld ar ranlib nm strip; do
     fi
     if [ -n "$target" ]; then ln -sf "$target" "/tmp/netbsd-bin/$tool"; fi
 done
+
 export PATH=/tmp/netbsd-bin:$PATH
+export LD_LIBRARY_PATH=/usr/pkg/gcc15/lib:/usr/pkg/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 export CC='gcc -B/usr/pkg/bin/'
 export HOST_CC='gcc -B/usr/pkg/bin/'
 work=/root/kbuildx
