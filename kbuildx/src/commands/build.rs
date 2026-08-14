@@ -218,21 +218,25 @@ fn sync_kernel(sbx: &Sandbox, repo: &str, version: &str) -> Result<()> {
             "-c",
             r#"
 set -e
-if git -C linux rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+kernel_dir="${PWD%/}/linux"
+if ! git config --global --get-all safe.directory | grep -Fxq "$kernel_dir"; then
+    git config --global --add safe.directory "$kernel_dir"
+fi
+if git -C "$kernel_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     printf '%s\n' "$3"
-    git -C linux fetch --force --depth 1 origin "refs/tags/$1:refs/tags/$1"
-    git -C linux -c checkout.workers=1 checkout --force --detach "refs/tags/$1"
+    git -C "$kernel_dir" fetch --force --depth 1 origin "refs/tags/$1:refs/tags/$1"
+    git -C "$kernel_dir" -c checkout.workers=1 checkout --force --detach "refs/tags/$1"
 else
-    if [ -e linux ]; then
+    if [ -e "$kernel_dir" ]; then
         printf '%s\n' "$4"
-        rm -rf -- linux
+        rm -rf -- "$kernel_dir"
     fi
     printf '%s\n' "$5"
-    git -c checkout.workers=1 clone --depth 1 --branch "$1" "$2" linux
+    git -c checkout.workers=1 clone --depth 1 --branch "$1" "$2" "$kernel_dir"
 fi
-current_tag=$(git -C linux describe --tags --exact-match HEAD)
+current_tag=$(git -C "$kernel_dir" describe --tags --exact-match HEAD)
 printf '%s %s\n' "$6" "$current_tag"
-current_commit=$(git -C linux rev-parse --short HEAD)
+current_commit=$(git -C "$kernel_dir" rev-parse --short HEAD)
 printf '%s%s\033[0m\n' "$7" "$current_commit"
 "#,
             "sh",
