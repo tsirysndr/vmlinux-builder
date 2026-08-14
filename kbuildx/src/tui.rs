@@ -46,6 +46,7 @@ enum Modal {
     None,
     Versions,
     Configs,
+    Resources,
     Help,
 }
 
@@ -63,6 +64,11 @@ struct App {
     selected_version: String,
     configs: Vec<(String, char)>,
     overrides: BTreeMap<String, char>,
+    cpus: u32,
+    memory: u32,
+    resource_field: usize,
+    resource_cpus: String,
+    resource_memory: String,
     build: Option<BuildProcess>,
     build_status: String,
     logs: Vec<String>,
@@ -102,6 +108,11 @@ impl App {
             selected_version: "7.1.8".to_string(),
             configs,
             overrides: BTreeMap::new(),
+            cpus: 2,
+            memory: 2048,
+            resource_field: 0,
+            resource_cpus: "2".to_string(),
+            resource_memory: "2048".to_string(),
             build: None,
             build_status: "Ready".to_string(),
             logs: vec!["Loading kernel versions…".to_string()],
@@ -169,6 +180,10 @@ impl App {
         command
             .arg("build")
             .arg(&self.selected_version)
+            .arg("--cpus")
+            .arg(self.cpus.to_string())
+            .arg("--memory")
+            .arg(self.memory.to_string())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         #[cfg(unix)]
@@ -199,9 +214,11 @@ impl App {
 
         self.logs.clear();
         self.logs.push(format!(
-            "Starting Linux {} with {} config override(s)",
+            "Starting Linux {} with {} config override(s), {} vCPU, {} MiB",
             self.selected_version,
-            self.overrides.len()
+            self.overrides.len(),
+            self.cpus,
+            self.memory
         ));
         self.follow_logs = true;
         self.build_status = "Building".to_string();
@@ -229,6 +246,11 @@ impl App {
     }
 
     fn open_modal(&mut self, modal: Modal) {
+        if modal == Modal::Resources {
+            self.resource_cpus = self.cpus.to_string();
+            self.resource_memory = self.memory.to_string();
+            self.resource_field = 0;
+        }
         self.modal = modal;
         self.query.clear();
         self.selected = 0;
@@ -266,6 +288,7 @@ impl App {
                 _ => {}
             },
             Modal::Versions | Modal::Configs => self.handle_search_key(key),
+            Modal::Resources => self.handle_resource_key(key),
             Modal::None => match key.code {
                 KeyCode::Char('q') => {
                     self.stop_build();
@@ -274,6 +297,7 @@ impl App {
                 KeyCode::Char('?') => self.open_modal(Modal::Help),
                 KeyCode::Char('/') => self.open_modal(Modal::Versions),
                 KeyCode::Char('c') => self.open_modal(Modal::Configs),
+                KeyCode::Char('r') => self.open_modal(Modal::Resources),
                 KeyCode::Char('b') => self.start_build()?,
                 KeyCode::Char('x') => self.stop_build(),
                 KeyCode::Up => {
@@ -336,6 +360,54 @@ impl App {
                 self.selected = 0;
             }
             _ => {}
+        }
+    }
+
+    fn handle_resource_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.modal = Modal::None,
+            KeyCode::Tab | KeyCode::Up | KeyCode::Down => {
+                self.resource_field = 1 - self.resource_field;
+            }
+            KeyCode::Backspace => {
+                self.active_resource_input().pop();
+            }
+            KeyCode::Char(character) if character.is_ascii_digit() => {
+                self.active_resource_input().push(character);
+            }
+            KeyCode::Enter => {
+                let cpus = self
+                    .resource_cpus
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|value| *value > 0);
+                let memory = self
+                    .resource_memory
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|value| *value > 0);
+                match (cpus, memory) {
+                    (Some(cpus), Some(memory)) => {
+                        self.cpus = cpus;
+                        self.memory = memory;
+                        self.logs
+                            .push(format!("Resources set to {cpus} vCPU, {memory} MiB"));
+                        self.modal = Modal::None;
+                    }
+                    _ => self
+                        .logs
+                        .push("CPU and memory values must be greater than zero".to_string()),
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn active_resource_input(&mut self) -> &mut String {
+        if self.resource_field == 0 {
+            &mut self.resource_cpus
+        } else {
+            &mut self.resource_memory
         }
     }
 }
@@ -401,6 +473,11 @@ fn draw(frame: &mut Frame, app: &mut App) {
         Span::styled(&app.selected_version, Style::default().fg(CYAN)),
         Span::styled("  Config overrides ", Style::default().fg(MUTED)),
         Span::styled(app.overrides.len().to_string(), Style::default().fg(YELLOW)),
+        Span::styled("  Resources ", Style::default().fg(MUTED)),
+        Span::styled(
+            format!("{} CPU / {} MiB", app.cpus, app.memory),
+            Style::default().fg(CYAN),
+        ),
         Span::styled("  Status ", Style::default().fg(MUTED)),
         Span::styled(&app.build_status, status_style(&app.build_status)),
     ]);
@@ -439,7 +516,7 @@ fn draw(frame: &mut Frame, app: &mut App) {
         areas[2],
     );
 
-    let shortcuts = " b build  x stop  / versions  c config  ↑↓ logs  End follow  ? help  q quit ";
+    let shortcuts = " b build  x stop  / version  c config  r resources  ↑↓ logs  ? help  q quit ";
     frame.render_widget(
         Paragraph::new(shortcuts)
             .alignment(Alignment::Center)
@@ -455,9 +532,64 @@ fn draw(frame: &mut Frame, app: &mut App) {
     match app.modal {
         Modal::Versions => draw_search_modal(frame, app, true),
         Modal::Configs => draw_search_modal(frame, app, false),
+        Modal::Resources => draw_resource_modal(frame, app),
         Modal::Help => draw_help(frame),
         Modal::None => {}
     }
+}
+
+fn draw_resource_modal(frame: &mut Frame, app: &App) {
+    let area = centered_rect(54, 58, frame.area());
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(VIOLET))
+        .title(" Build resources ");
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(content);
+
+    frame.render_widget(
+        Paragraph::new("Set sandbox CPU and memory limits")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(MUTED)),
+        rows[0],
+    );
+    for (index, (title, value)) in [
+        (" vCPUs ", app.resource_cpus.as_str()),
+        (" Memory (MiB) ", app.resource_memory.as_str()),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let selected = app.resource_field == index;
+        frame.render_widget(
+            Paragraph::new(format!("> {value}"))
+                .style(Style::default().fg(if selected { CYAN } else { Color::White }))
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(if selected { VIOLET } else { MUTED }))
+                        .title(title),
+                ),
+            rows[index + 1],
+        );
+    }
+    frame.render_widget(
+        Paragraph::new(" Tab/↑/↓ switch • Enter apply • Esc cancel ")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(MUTED)),
+        rows[4],
+    );
 }
 
 fn aligned_logo_lines() -> Vec<String> {
@@ -545,7 +677,7 @@ fn draw_search_modal(frame: &mut Frame, app: &App, versions: bool) {
 }
 
 fn draw_help(frame: &mut Frame) {
-    let area = centered_rect(64, 62, frame.area());
+    let area = centered_rect(64, 70, frame.area());
     frame.render_widget(Clear, area);
     let help = Text::from(vec![
         Line::styled(
@@ -557,6 +689,7 @@ fn draw_help(frame: &mut Frame) {
         Line::from("x       Stop the running build"),
         Line::from("/       Fuzzy-search and select a kernel version"),
         Line::from("c       Fuzzy-search and set a kernel config option"),
+        Line::from("r       Edit sandbox CPU and memory options"),
         Line::from("↑/↓     Scroll build logs and pause auto-follow"),
         Line::from("PgUp/Dn Scroll logs by ten lines"),
         Line::from("End     Resume real-time log following"),
@@ -684,5 +817,18 @@ mod tests {
 
         assert_eq!(app.modal, Modal::Configs);
         assert_ne!(app.overrides.get(&name), Some(&default));
+    }
+
+    #[test]
+    fn resource_modal_applies_cpu_and_memory_values() {
+        let mut app = App::new();
+        app.modal = Modal::Resources;
+        app.resource_cpus = "8".to_string();
+        app.resource_memory = "8192".to_string();
+        app.handle_resource_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(app.cpus, 8);
+        assert_eq!(app.memory, 8192);
+        assert_eq!(app.modal, Modal::None);
     }
 }

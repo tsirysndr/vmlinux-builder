@@ -76,6 +76,7 @@ The home screen shows the selected kernel version, number of config overrides, c
 | `x`                   | Stop the running build                           |
 | `/`                   | Open the fuzzy kernel-version picker             |
 | `c`                   | Open the fuzzy kernel-config picker              |
+| `r`                   | Edit sandbox CPU and memory options              |
 | `Up` / `Down`         | Scroll logs and pause automatic following        |
 | `PageUp` / `PageDown` | Scroll logs by ten lines                         |
 | `End`                 | Resume following live output                     |
@@ -100,6 +101,12 @@ n → y → m → n
 ```
 
 The selected value is stored as a build override and passed through the normal CLI build pipeline. Kernel Kconfig normalization still has the final say when a symbol is unavailable or has unmet dependencies.
+
+### Resource editor
+
+Press `r` to edit the vCPU and memory values used by TUI builds. Use `Tab`, `Up`, or `Down` to switch fields, enter numeric values, and press `Enter` to apply. Both values must be greater than zero. Press `Esc` to cancel.
+
+The selected values are passed to the build command as `--cpus` and `--memory`. They configure a bsdkrun sandbox; direct host builds naturally use the host's available resources.
 
 ### Live build logs
 
