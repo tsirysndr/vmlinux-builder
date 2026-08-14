@@ -22,6 +22,19 @@ RUN apk add --no-cache \
   gcc \
   bc \
   elfutils-dev \
-  pahole
+  pahole \
+  curl \
+  tar \
+  gzip \
+  u-boot-tools \
+  mkinitfs \
+  bash \
+  perl \
+  python3 \
+  rsync \
+  cpio \
+  xz \
+  zstd \
+  findutils
 
 ENTRYPOINT [ "/usr/local/bin/kbuildx" ]
