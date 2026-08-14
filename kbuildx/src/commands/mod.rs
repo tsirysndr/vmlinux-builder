@@ -11,7 +11,7 @@ pub mod list;
 pub fn dispatch(cmd: Command) -> Result<()> {
     match cmd {
         Command::Ls(args) => list_versions(args),
-        Command::Build(args) => build_kernel(args),
+        Command::Build(args) => build_kernel(args)?,
     }
     Ok(())
 }

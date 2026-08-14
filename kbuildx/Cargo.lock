@@ -87,9 +87,9 @@ dependencies = [
 
 [[package]]
 name = "bsdkrun-sdk"
-version = "0.1.0"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee55e0a05a48e59452eb4b962ea6e5649ca4e062bbf4d167bf7d80c8d29a36c4"
+checksum = "3b24038ea463f8def153bb9010756118eb73995d8d10c6e92a8efb4b3a170fda"
 dependencies = [
  "base64",
  "serde",

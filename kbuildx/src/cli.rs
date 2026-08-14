@@ -3,6 +3,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::consts::KERNEL_REPO;
 
+const HELP_BANNER: &str = concat!(
+    "\x1b[38;2;255;95;135m",
+    " _    ____        _ _     _      \n",
+    "| | _| __ ) _   _(_) | __| |_  __\n",
+    "| |/ /  _ \\| | | | |/ _` \\ \\/ /\n",
+    "|   <| |_) | |_| | | | (_| |>  < \n",
+    "|_|\\_\\____/ \\__,_|_|_|\\__,_/_/\\_\\",
+    "\x1b[0m\n",
+    "\x1b[38;2;0;215;215m",
+    "      Linux kernel builder",
+    "\x1b[0m"
+);
+
 #[derive(Parser, Serialize, Deserialize)]
 pub struct LsArgs {
     #[arg(
@@ -31,6 +44,7 @@ pub struct BuildArgs {
 #[command(
     name = "kbuildx",
     version,
+    before_help = HELP_BANNER,
     about = "A tool for building custom Linux kernels."
 )]
 pub struct Cli {

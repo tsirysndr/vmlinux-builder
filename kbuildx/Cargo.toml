@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.104"
-bsdkrun-sdk = "0.1.0"
+bsdkrun-sdk = "0.1.2"
 clap = { version = "4", features = ["derive"] }
 owo-colors = "4.3.0"
 serde = { version = "1", features = ["derive"] }

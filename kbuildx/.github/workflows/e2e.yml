@@ -1,0 +1,39 @@
+name: End-to-end tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Build and test CLI
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install bsdkrun CLI
+        run: npm install -g @bsdkrun/cli
+
+      - name: Verify bsdkrun runtime
+        run: bsdkrun probe
+
+      - name: Build kbuildx CLI
+        run: cargo build --release --locked
+
+      - name: Test version listing
+        run: ./target/release/kbuildx ls --refresh
+
+      - name: Test kernel checkout
+        run: ./target/release/kbuildx build 6.6.1
