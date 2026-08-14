@@ -153,7 +153,12 @@ fn start_bsd_sandbox(os: BuildOs, version: &str, cpus: u32, memory: u32) -> Resu
         BuildOs::Netbsd => "netbsd",
         BuildOs::Linux => unreachable!(),
     };
-    let name = format!("kbuildx_{}_{}", os_name, safe_label(version));
+    let machine_version = if os == BuildOs::Netbsd {
+        "10.1"
+    } else {
+        version
+    };
+    let name = format!("kbuildx_{}_{}", os_name, safe_label(machine_version));
     let (sandbox, created) = match Sandbox::get(&name) {
         Ok(sandbox) => (sandbox, false),
         Err(_) => {
@@ -162,13 +167,17 @@ fn start_bsd_sandbox(os: BuildOs, version: &str, cpus: u32, memory: u32) -> Resu
                 step("[1/4 SANDBOX]"),
                 action("Creating persistent BSD build machine")
             );
+            // Use the stable NetBSD 10.1 guest image, matching the package
+            // repository used by the bsdkrun workflows. The requested version
+            // still selects the source ref and artifact label below.
+            let guest_version = machine_version;
             let output = Command::new(bsdkrun_binary())
                 .arg(os_name)
                 .arg("-d")
                 .arg("--name")
                 .arg(&name)
                 .arg("--version")
-                .arg(version)
+                .arg(guest_version)
                 .arg("--cpus")
                 .arg(cpus.to_string())
                 .arg("--mem")
