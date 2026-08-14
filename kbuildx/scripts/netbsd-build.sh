@@ -14,6 +14,10 @@ done
 
 export PATH=/tmp/netbsd-bin:$PATH
 export LD_LIBRARY_PATH=/usr/pkg/gcc15/lib:/usr/pkg/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+gnuctf=$(find /usr/pkg -name 'libgnuctf.so.2' -type f 2>/dev/null | head -n 1 || true)
+if [ -n "$gnuctf" ]; then
+    export LD_LIBRARY_PATH="$(dirname "$gnuctf"):$LD_LIBRARY_PATH"
+fi
 export CC='gcc -B/usr/pkg/bin/'
 export HOST_CC='gcc -B/usr/pkg/bin/'
 work=/root/kbuildx
