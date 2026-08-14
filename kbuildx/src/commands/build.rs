@@ -7,7 +7,7 @@ use std::process::Command;
 use crate::{cli::BuildArgs, config::KernelConfig, consts::KERNEL_REPO};
 
 fn step_label(label: &str) -> String {
-    label.color(Rgb(255, 95, 135)).bold().to_string()
+    label.color(Rgb(125, 86, 244)).bold().to_string()
 }
 
 fn action(text: &str) -> String {
@@ -210,6 +210,7 @@ fn sync_kernel(sbx: &Sandbox, repo: &str, version: &str) -> Result<()> {
         action("Cloning Linux kernel checkout")
     );
     let current_tag_message = format!("{} {}", kernel_label, success("Current kernel tag:"));
+    let current_commit_message = format!("{} Current commit: \x1b[38;2;0;215;215m", kernel_label);
 
     let result = sbx
         .command("sh")
@@ -220,17 +221,19 @@ set -e
 if git -C linux rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     printf '%s\n' "$3"
     git -C linux fetch --force --depth 1 origin "refs/tags/$1:refs/tags/$1"
-    git -C linux checkout --force --detach "refs/tags/$1"
+    git -C linux -c checkout.workers=1 checkout --force --detach "refs/tags/$1"
 else
     if [ -e linux ]; then
         printf '%s\n' "$4"
         rm -rf -- linux
     fi
     printf '%s\n' "$5"
-    git clone --depth 1 --branch "$1" "$2" linux
+    git -c checkout.workers=1 clone --depth 1 --branch "$1" "$2" linux
 fi
 current_tag=$(git -C linux describe --tags --exact-match HEAD)
 printf '%s %s\n' "$6" "$current_tag"
+current_commit=$(git -C linux rev-parse --short HEAD)
+printf '%s%s\033[0m\n' "$7" "$current_commit"
 "#,
             "sh",
             &git_ref,
@@ -239,6 +242,7 @@ printf '%s %s\n' "$6" "$current_tag"
             &remove_message,
             &clone_message,
             &current_tag_message,
+            &current_commit_message,
         ])
         .stdout(std::io::stdout())
         .stderr(std::io::stderr())
