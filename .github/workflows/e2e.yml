@@ -54,15 +54,19 @@ jobs:
       - name: Verify bsdkrun runtime
         run: bsdkrun probe
 
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: kbuildx -> target
+
       - name: Build kbuildx CLI
         run: cargo build --release --locked
-        working-directory: ./kbuildx 
+        working-directory: ./kbuildx
 
       - name: Test version listing
         run: ./target/release/kbuildx ls --refresh
-        working-directory: ./kbuildx 
+        working-directory: ./kbuildx
 
       - name: Test kernel checkout
         run: ./target/release/kbuildx build 6.6.1
-        working-directory: ./kbuildx 
-
+        working-directory: ./kbuildx
