@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    io::{self, BufRead, BufReader},
+    io::{self, Read},
     process::{Child, Command, Stdio},
     sync::mpsc::{self, Receiver},
     thread,
@@ -53,7 +53,8 @@ enum Modal {
 
 struct BuildProcess {
     child: Child,
-    output: Receiver<String>,
+    output: Receiver<Vec<u8>>,
+    readers: Vec<thread::JoinHandle<()>>,
 }
 
 struct App {
@@ -75,6 +76,8 @@ struct App {
     build: Option<BuildProcess>,
     build_status: String,
     logs: Vec<String>,
+    partial_log: String,
+    pending_carriage_return: bool,
     log_top: usize,
     follow_logs: bool,
     fullscreen_logs: bool,
@@ -125,6 +128,8 @@ impl App {
             build: None,
             build_status: "Ready".to_string(),
             logs: vec!["Loading kernel versions…".to_string()],
+            partial_log: String::new(),
+            pending_carriage_return: false,
             log_top: 0,
             follow_logs: true,
             fullscreen_logs: false,
@@ -152,12 +157,10 @@ impl App {
         }
 
         let mut finished = None;
+        let mut chunks = Vec::new();
         if let Some(build) = &mut self.build {
-            while let Ok(line) = build.output.try_recv() {
-                self.logs.push(line);
-            }
-            if self.logs.len() > LOG_LIMIT {
-                self.logs.drain(..self.logs.len() - LOG_LIMIT);
+            while let Ok(chunk) = build.output.try_recv() {
+                chunks.push(chunk);
             }
             match build.child.try_wait() {
                 Ok(Some(status)) => finished = Some(status.code().unwrap_or(-1)),
@@ -168,8 +171,22 @@ impl App {
                 }
             }
         }
+        for chunk in chunks {
+            self.consume_output(&chunk);
+        }
+        if self.logs.len() > LOG_LIMIT {
+            self.logs.drain(..self.logs.len() - LOG_LIMIT);
+        }
         if let Some(code) = finished {
-            self.build = None;
+            if let Some(build) = self.build.take() {
+                for reader in build.readers {
+                    let _ = reader.join();
+                }
+                while let Ok(chunk) = build.output.try_recv() {
+                    self.consume_output(&chunk);
+                }
+            }
+            self.finish_partial_log();
             self.build_status = if code == 0 {
                 "Build completed".to_string()
             } else {
@@ -212,20 +229,32 @@ impl App {
         let stdout = child.stdout.take().context("capturing build stdout")?;
         let stderr = child.stderr.take().context("capturing build stderr")?;
         let (tx, rx) = mpsc::channel();
+        let mut readers = Vec::new();
         for reader in [
-            Box::new(BufReader::new(stdout)) as Box<dyn BufRead + Send>,
-            Box::new(BufReader::new(stderr)) as Box<dyn BufRead + Send>,
+            Box::new(stdout) as Box<dyn Read + Send>,
+            Box::new(stderr) as Box<dyn Read + Send>,
         ] {
             let tx = tx.clone();
-            thread::spawn(move || {
-                for line in reader.lines().map_while(Result::ok) {
-                    let _ = tx.send(line);
+            readers.push(thread::spawn(move || {
+                let mut reader = reader;
+                let mut buffer = [0_u8; 4096];
+                loop {
+                    match reader.read(&mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(length) => {
+                            if tx.send(buffer[..length].to_vec()).is_err() {
+                                break;
+                            }
+                        }
+                    }
                 }
-            });
+            }));
         }
         drop(tx);
 
         self.logs.clear();
+        self.partial_log.clear();
+        self.pending_carriage_return = false;
         self.logs.push(if self.build_args.is_empty() {
             format!(
                 "Starting Linux {} with {} config override(s), {} vCPU, {} MiB",
@@ -239,7 +268,11 @@ impl App {
         });
         self.follow_logs = true;
         self.build_status = "Building".to_string();
-        self.build = Some(BuildProcess { child, output: rx });
+        self.build = Some(BuildProcess {
+            child,
+            output: rx,
+            readers,
+        });
         Ok(())
     }
 
@@ -441,6 +474,31 @@ impl App {
             &mut self.resource_cpus
         } else {
             &mut self.resource_memory
+        }
+    }
+
+    fn consume_output(&mut self, chunk: &[u8]) {
+        for character in String::from_utf8_lossy(chunk).chars() {
+            if self.pending_carriage_return {
+                self.pending_carriage_return = false;
+                if character == '\n' {
+                    self.finish_partial_log();
+                    continue;
+                }
+                self.partial_log.clear();
+            }
+            match character {
+                '\r' => self.pending_carriage_return = true,
+                '\n' => self.finish_partial_log(),
+                _ => self.partial_log.push(character),
+            }
+        }
+    }
+
+    fn finish_partial_log(&mut self) {
+        self.pending_carriage_return = false;
+        if !self.partial_log.is_empty() {
+            self.logs.push(std::mem::take(&mut self.partial_log));
         }
     }
 
@@ -666,7 +724,13 @@ fn draw_logs(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         app.log_top = app.log_top.min(max_top);
     }
-    let logs = app.logs.join("\n");
+    let mut logs = app.logs.join("\n");
+    if !app.partial_log.is_empty() {
+        if !logs.is_empty() {
+            logs.push('\n');
+        }
+        logs.push_str(&app.partial_log);
+    }
     frame.render_widget(
         Paragraph::new(logs)
             .scroll((app.log_top.min(u16::MAX as usize) as u16, 0))
@@ -1024,6 +1088,19 @@ mod tests {
             ["7.1.8", "--uimage-name", "CI kernel"]
         );
         assert!(shell_split("7.1.8 --uimage-name 'unfinished").is_err());
+    }
+
+    #[test]
+    fn output_chunks_stream_lines_and_carriage_return_progress() {
+        let mut app = App::new();
+        app.logs.clear();
+
+        app.consume_output(b"compile 10%");
+        assert_eq!(app.partial_log, "compile 10%");
+        app.consume_output(b"\rcompile 20%\nnext");
+
+        assert_eq!(app.logs, ["compile 20%"]);
+        assert_eq!(app.partial_log, "next");
     }
 
     #[test]
