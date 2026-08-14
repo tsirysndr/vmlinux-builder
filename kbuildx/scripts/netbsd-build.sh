@@ -18,6 +18,9 @@ gnuctf=$(find /usr/pkg -name 'libgnuctf.so.2' -type f 2>/dev/null | head -n 1 ||
 if [ -n "$gnuctf" ]; then
     export LD_LIBRARY_PATH="$(dirname "$gnuctf"):$LD_LIBRARY_PATH"
 fi
+
+ln -s /usr/lib/libgnuctf.so.3 /usr/lib/libgnuctf.so.2 || echo "failed to create symlink for libgnuctf.so.2; continuing anyway"
+
 export CC='gcc -B/usr/pkg/bin/'
 export HOST_CC='gcc -B/usr/pkg/bin/'
 work=/root/kbuildx

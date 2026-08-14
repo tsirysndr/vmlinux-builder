@@ -86,4 +86,5 @@ if command -v mozilla-rootcerts >/dev/null 2>&1; then
 elif [ -x /usr/pkg/sbin/mozilla-rootcerts ]; then
     /usr/pkg/sbin/mozilla-rootcerts install
 fi
+
 git --version
