@@ -255,12 +255,12 @@ fn install_bsd_dependencies(runtime: &BsdRuntime, os: BuildOs, version: &str) ->
         action("Installing BSD build dependencies")
     );
     match os {
-        BuildOs::Freebsd => runtime.run("/bin/sh", &["-s"], Some(FREEBSD_DEPS_SCRIPT), true),
+        BuildOs::Freebsd => runtime.run("/bin/sh", &["-s"], Some(FREEBSD_DEPS_SCRIPT), false),
         BuildOs::Netbsd => runtime.run(
             "/bin/sh",
             &["-s", "--", version],
             Some(NETBSD_DEPS_SCRIPT),
-            true,
+            false,
         ),
         BuildOs::Linux => unreachable!(),
     }
