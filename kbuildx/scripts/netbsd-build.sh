@@ -3,6 +3,8 @@ set -eu
 
 version=$1; repo=$2; ref=$3; label=$4; requested_config=$5; bundle=$6
 export PATH=/usr/pkg/gcc15/bin:/usr/pkg/bin:/sbin:/usr/sbin:/bin:/usr/bin
+export CC='gcc -B/usr/pkg/bin/'
+export HOST_CC='gcc -B/usr/pkg/bin/'
 work=/root/kbuildx
 src=$work/netbsd-src
 obj=$work/netbsd-obj
