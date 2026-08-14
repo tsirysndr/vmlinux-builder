@@ -64,7 +64,7 @@ mkdir -p /usr/pkg/lib/perl5/5.42.0/TAP/Formatter /usr/pkg/bin /usr/pkg/sbin /usr
 
 export ASSUME_ALWAYS_YES=yes
 pkgin update
-pkgin install git mozilla-rootcerts-openssl || cat /var/db/pkgin/pkg_install-err.log
+pkgin -y install git mozilla-rootcerts-openssl || cat /var/db/pkgin/pkg_install-err.log
 if command -v mozilla-rootcerts >/dev/null 2>&1; then
     mozilla-rootcerts install
 elif [ -x /usr/pkg/sbin/mozilla-rootcerts ]; then
