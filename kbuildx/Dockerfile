@@ -36,6 +36,7 @@ RUN apk add --no-cache \
   xz \
   zstd \
   findutils \
+  diffutils \
   linux-headers
 
 ENTRYPOINT [ "/usr/local/bin/kbuildx" ]
