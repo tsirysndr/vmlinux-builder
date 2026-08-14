@@ -3,6 +3,12 @@ set -eu
 
 version=$1; repo=$2; ref=$3; label=$4; requested_config=$5; bundle=$6
 export PATH=/usr/pkg/gcc15/bin:/usr/pkg/bin:/sbin:/usr/sbin:/bin:/usr/bin
+mkdir -p /tmp/netbsd-bin
+for tool in as ld ar ranlib nm strip; do
+    target=$(command -v "x86_64--netbsd-$tool" 2>/dev/null || true)
+    if [ -n "$target" ]; then ln -sf "$target" "/tmp/netbsd-bin/$tool"; fi
+done
+export PATH=/tmp/netbsd-bin:$PATH
 export CC='gcc -B/usr/pkg/bin/'
 export HOST_CC='gcc -B/usr/pkg/bin/'
 work=/root/kbuildx
