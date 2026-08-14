@@ -96,9 +96,8 @@ jobs:
           echo "File descriptor limit: $(ulimit -n)"
           echo "bsdkrun binary: $(command -v bsdkrun)"
           host_memory_mib="$(awk '/MemTotal/ { print int($2 / 1024) }' /proc/meminfo)"
-          guest_memory_mib="$((host_memory_mib / 2))"
-          echo "Sandbox resources: $(nproc) vCPU, ${guest_memory_mib} MiB"
+          echo "Sandbox resources: $(nproc) vCPU, ${host_memory_mib} MiB"
           ./target/release/kbuildx build 7.1.8 \
             --cpus "$(nproc)" \
-            --memory "$guest_memory_mib"
+            --memory "$host_memory_mib"
         working-directory: ./kbuildx

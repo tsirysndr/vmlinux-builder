@@ -483,7 +483,7 @@ fi
         .stdin(&kernel_config)
         .stdout(std::io::stdout())
         .stderr(std::io::stderr())
-        .tty(true)
+        .tty(false)
         .run()?
         .ok_or_err()?;
 
