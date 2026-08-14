@@ -40,8 +40,10 @@ printf '%s\n' "pkgsrc repository: $package_path"
 if command -v resize_ffs >/dev/null 2>&1; then
     printf '%s\n' 'Growing NetBSD FFS root filesystem to fill the virtual disk'
     df -h /
+    df -i /
     resize_ffs -y /dev/rld0a
     df -h /
+    df -i /
 else
     printf '%s\n' 'NetBSD resize_ffs is unavailable; cannot use expanded build disk' >&2
     exit 1
