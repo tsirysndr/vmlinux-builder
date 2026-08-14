@@ -79,7 +79,7 @@ mkdir -p /usr/pkg/lib/perl5/5.42.0/TAP/Formatter /usr/pkg/bin /usr/pkg/sbin /usr
 
 export ASSUME_ALWAYS_YES=yes
 pkgin update
-pkgin -y install git gcc-g++ git-base gmake binutils gmake bison flex perl mozilla-rootcerts-openssl \
+pkgin -y install git gcc git-base gmake binutils gmake bison flex perl mozilla-rootcerts-openssl \
     || cat /var/db/pkgin/pkg_install-err.log
 if command -v mozilla-rootcerts >/dev/null 2>&1; then
     mozilla-rootcerts install
