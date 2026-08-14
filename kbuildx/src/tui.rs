@@ -47,6 +47,7 @@ enum Modal {
     Versions,
     Configs,
     Resources,
+    BuildOptions,
     Help,
 }
 
@@ -69,11 +70,14 @@ struct App {
     resource_field: usize,
     resource_cpus: String,
     resource_memory: String,
+    build_args: Vec<String>,
+    build_options_input: String,
     build: Option<BuildProcess>,
     build_status: String,
     logs: Vec<String>,
     log_top: usize,
     follow_logs: bool,
+    fullscreen_logs: bool,
     should_quit: bool,
 }
 
@@ -98,6 +102,9 @@ impl App {
                 _ => None,
             })
             .collect();
+        let host_cpus = std::thread::available_parallelism()
+            .map(|count| count.get() as u32)
+            .unwrap_or(2);
 
         Self {
             modal: Modal::None,
@@ -108,16 +115,19 @@ impl App {
             selected_version: "7.1.8".to_string(),
             configs,
             overrides: BTreeMap::new(),
-            cpus: 2,
+            cpus: host_cpus,
             memory: 2048,
             resource_field: 0,
-            resource_cpus: "2".to_string(),
+            resource_cpus: host_cpus.to_string(),
             resource_memory: "2048".to_string(),
+            build_args: Vec::new(),
+            build_options_input: String::new(),
             build: None,
             build_status: "Ready".to_string(),
             logs: vec!["Loading kernel versions…".to_string()],
             log_top: 0,
             follow_logs: true,
+            fullscreen_logs: false,
             should_quit: false,
         }
     }
@@ -177,15 +187,18 @@ impl App {
 
         let executable = std::env::current_exe().context("locating kbuildx executable")?;
         let mut command = Command::new(executable);
-        command
-            .arg("build")
-            .arg(&self.selected_version)
-            .arg("--cpus")
-            .arg(self.cpus.to_string())
-            .arg("--memory")
-            .arg(self.memory.to_string())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        command.arg("build");
+        if self.build_args.is_empty() {
+            command
+                .arg(&self.selected_version)
+                .arg("--cpus")
+                .arg(self.cpus.to_string())
+                .arg("--memory")
+                .arg(self.memory.to_string());
+        } else {
+            command.args(&self.build_args);
+        }
+        command.stdout(Stdio::piped()).stderr(Stdio::piped());
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -213,13 +226,17 @@ impl App {
         drop(tx);
 
         self.logs.clear();
-        self.logs.push(format!(
-            "Starting Linux {} with {} config override(s), {} vCPU, {} MiB",
-            self.selected_version,
-            self.overrides.len(),
-            self.cpus,
-            self.memory
-        ));
+        self.logs.push(if self.build_args.is_empty() {
+            format!(
+                "Starting Linux {} with {} config override(s), {} vCPU, {} MiB",
+                self.selected_version,
+                self.overrides.len(),
+                self.cpus,
+                self.memory
+            )
+        } else {
+            format!("Starting custom build: {}", shell_join(&self.build_args))
+        });
         self.follow_logs = true;
         self.build_status = "Building".to_string();
         self.build = Some(BuildProcess { child, output: rx });
@@ -250,6 +267,15 @@ impl App {
             self.resource_cpus = self.cpus.to_string();
             self.resource_memory = self.memory.to_string();
             self.resource_field = 0;
+        } else if modal == Modal::BuildOptions {
+            self.build_options_input = if self.build_args.is_empty() {
+                format!(
+                    "{} --cpus {} --memory {}",
+                    self.selected_version, self.cpus, self.memory
+                )
+            } else {
+                shell_join(&self.build_args)
+            };
         }
         self.modal = modal;
         self.query.clear();
@@ -281,6 +307,10 @@ impl App {
             self.should_quit = true;
             return Ok(());
         }
+        if self.fullscreen_logs && key.code == KeyCode::Esc {
+            self.fullscreen_logs = false;
+            return Ok(());
+        }
 
         match self.modal {
             Modal::Help => match key.code {
@@ -289,6 +319,7 @@ impl App {
             },
             Modal::Versions | Modal::Configs => self.handle_search_key(key),
             Modal::Resources => self.handle_resource_key(key),
+            Modal::BuildOptions => self.handle_build_options_key(key),
             Modal::None => match key.code {
                 KeyCode::Char('q') => {
                     self.stop_build();
@@ -298,6 +329,8 @@ impl App {
                 KeyCode::Char('/') => self.open_modal(Modal::Versions),
                 KeyCode::Char('c') => self.open_modal(Modal::Configs),
                 KeyCode::Char('r') => self.open_modal(Modal::Resources),
+                KeyCode::Char('o') => self.open_modal(Modal::BuildOptions),
+                KeyCode::Char('l') => self.fullscreen_logs = !self.fullscreen_logs,
                 KeyCode::Char('b') => self.start_build()?,
                 KeyCode::Char('x') => self.stop_build(),
                 KeyCode::Up => {
@@ -410,6 +443,89 @@ impl App {
             &mut self.resource_memory
         }
     }
+
+    fn handle_build_options_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.modal = Modal::None,
+            KeyCode::Backspace => {
+                self.build_options_input.pop();
+            }
+            KeyCode::Enter => match shell_split(&self.build_options_input) {
+                Ok(args) if !args.is_empty() => {
+                    self.build_args = args;
+                    self.logs.push(format!(
+                        "Build options overridden: {}",
+                        shell_join(&self.build_args)
+                    ));
+                    self.modal = Modal::None;
+                }
+                Ok(_) => self
+                    .logs
+                    .push("Build options must include a kernel version".to_string()),
+                Err(error) => self.logs.push(format!("Invalid build options: {error}")),
+            },
+            KeyCode::Char(character) => self.build_options_input.push(character),
+            _ => {}
+        }
+    }
+}
+
+fn shell_split(input: &str) -> std::result::Result<Vec<String>, &'static str> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    let mut started = false;
+    for character in input.chars() {
+        if escaped {
+            current.push(character);
+            escaped = false;
+            started = true;
+        } else if character == '\\' && quote != Some('\'') {
+            escaped = true;
+            started = true;
+        } else if matches!(character, '\'' | '"') {
+            if quote == Some(character) {
+                quote = None;
+            } else if quote.is_none() {
+                quote = Some(character);
+                started = true;
+            } else {
+                current.push(character);
+            }
+        } else if character.is_whitespace() && quote.is_none() {
+            if started {
+                args.push(std::mem::take(&mut current));
+                started = false;
+            }
+        } else {
+            current.push(character);
+            started = true;
+        }
+    }
+    if escaped || quote.is_some() {
+        return Err("unterminated quote or escape");
+    }
+    if started {
+        args.push(current);
+    }
+    Ok(args)
+}
+
+fn shell_join(args: &[String]) -> String {
+    args.iter()
+        .map(|arg| {
+            if arg
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-._/=:".contains(c))
+            {
+                arg.clone()
+            } else {
+                format!("'{}'", arg.replace('\'', "'\\''"))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn run_tui() -> Result<()> {
@@ -441,6 +557,11 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()>
 }
 
 fn draw(frame: &mut Frame, app: &mut App) {
+    if app.fullscreen_logs {
+        draw_fullscreen_logs(frame, app);
+        return;
+    }
+
     let areas = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -492,7 +613,53 @@ fn draw(frame: &mut Frame, app: &mut App) {
         areas[1],
     );
 
-    let height = areas[2].height.saturating_sub(2) as usize;
+    draw_logs(frame, app, areas[2]);
+
+    let shortcuts =
+        " b build  x stop  / version  c config  r resources  o options  l logs  ? help  q quit ";
+    frame.render_widget(
+        Paragraph::new(shortcuts)
+            .alignment(Alignment::Center)
+            .style(
+                Style::default()
+                    .bg(VIOLET)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        areas[3],
+    );
+
+    match app.modal {
+        Modal::Versions => draw_search_modal(frame, app, true),
+        Modal::Configs => draw_search_modal(frame, app, false),
+        Modal::Resources => draw_resource_modal(frame, app),
+        Modal::BuildOptions => draw_build_options_modal(frame, app),
+        Modal::Help => draw_help(frame),
+        Modal::None => {}
+    }
+}
+
+fn draw_fullscreen_logs(frame: &mut Frame, app: &mut App) {
+    let areas = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(3), Constraint::Length(1)])
+        .split(frame.area());
+    draw_logs(frame, app, areas[0]);
+    frame.render_widget(
+        Paragraph::new(" l/Esc normal view  ↑↓/PgUp/PgDn scroll  End follow  x stop  q quit ")
+            .alignment(Alignment::Center)
+            .style(
+                Style::default()
+                    .bg(VIOLET)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        areas[1],
+    );
+}
+
+fn draw_logs(frame: &mut Frame, app: &mut App, area: Rect) {
+    let height = area.height.saturating_sub(2) as usize;
     let max_top = app.logs.len().saturating_sub(height);
     if app.follow_logs {
         app.log_top = max_top;
@@ -513,29 +680,8 @@ fn draw(frame: &mut Frame, app: &mut App) {
                         " Build logs • scroll paused (End to follow) "
                     }),
             ),
-        areas[2],
+        area,
     );
-
-    let shortcuts = " b build  x stop  / version  c config  r resources  ↑↓ logs  ? help  q quit ";
-    frame.render_widget(
-        Paragraph::new(shortcuts)
-            .alignment(Alignment::Center)
-            .style(
-                Style::default()
-                    .bg(VIOLET)
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        areas[3],
-    );
-
-    match app.modal {
-        Modal::Versions => draw_search_modal(frame, app, true),
-        Modal::Configs => draw_search_modal(frame, app, false),
-        Modal::Resources => draw_resource_modal(frame, app),
-        Modal::Help => draw_help(frame),
-        Modal::None => {}
-    }
 }
 
 fn draw_resource_modal(frame: &mut Frame, app: &App) {
@@ -589,6 +735,48 @@ fn draw_resource_modal(frame: &mut Frame, app: &App) {
             .alignment(Alignment::Center)
             .style(Style::default().fg(MUTED)),
         rows[4],
+    );
+}
+
+fn draw_build_options_modal(frame: &mut Frame, app: &App) {
+    let area = centered_rect(86, 48, frame.area());
+    frame.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(VIOLET))
+        .title(" Override all build options ");
+    let content = block.inner(area);
+    frame.render_widget(block, area);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Min(3),
+            Constraint::Length(2),
+        ])
+        .split(content);
+    frame.render_widget(
+        Paragraph::new("Enter every argument after `kbuildx build` (quotes are supported).")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(MUTED)),
+        rows[0],
+    );
+    frame.render_widget(
+        Paragraph::new(format!("> {}", app.build_options_input))
+            .wrap(Wrap { trim: false })
+            .style(Style::default().fg(CYAN))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Build arguments "),
+            ),
+        rows[1],
+    );
+    frame.render_widget(
+        Paragraph::new("Example: 7.1.8 --host --modules --defconfig x86_64_defconfig\nEnter apply • Esc cancel")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(MUTED)),
+        rows[2],
     );
 }
 
@@ -690,6 +878,8 @@ fn draw_help(frame: &mut Frame) {
         Line::from("/       Fuzzy-search and select a kernel version"),
         Line::from("c       Fuzzy-search and set a kernel config option"),
         Line::from("r       Edit sandbox CPU and memory options"),
+        Line::from("o       Override every build command option"),
+        Line::from("l       Toggle fullscreen build logs"),
         Line::from("↑/↓     Scroll build logs and pause auto-follow"),
         Line::from("PgUp/Dn Scroll logs by ten lines"),
         Line::from("End     Resume real-time log following"),
@@ -786,7 +976,7 @@ fn status_style(status: &str) -> Style {
 mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    use super::{App, Modal, aligned_logo_lines, fuzzy_indices, version_key};
+    use super::{App, Modal, aligned_logo_lines, fuzzy_indices, shell_split, version_key};
 
     #[test]
     fn fuzzy_search_prioritizes_close_matches() {
@@ -804,6 +994,47 @@ mod tests {
     fn logo_uses_a_fixed_width_canvas() {
         let lines = aligned_logo_lines();
         assert!(lines.windows(2).all(|pair| pair[0].len() == pair[1].len()));
+    }
+
+    #[test]
+    fn log_shortcut_toggles_fullscreen_view() {
+        let mut app = App::new();
+        app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE))
+            .unwrap();
+        assert!(app.fullscreen_logs);
+
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE))
+            .unwrap();
+        assert!(!app.fullscreen_logs);
+    }
+
+    #[test]
+    fn tui_defaults_to_available_host_cpus() {
+        let app = App::new();
+        let available = std::thread::available_parallelism()
+            .map(|count| count.get() as u32)
+            .unwrap_or(2);
+        assert_eq!(app.cpus, available);
+    }
+
+    #[test]
+    fn build_options_support_shell_style_quotes() {
+        assert_eq!(
+            shell_split("7.1.8 --uimage-name 'CI kernel'").unwrap(),
+            ["7.1.8", "--uimage-name", "CI kernel"]
+        );
+        assert!(shell_split("7.1.8 --uimage-name 'unfinished").is_err());
+    }
+
+    #[test]
+    fn build_options_modal_applies_complete_argument_list() {
+        let mut app = App::new();
+        app.modal = Modal::BuildOptions;
+        app.build_options_input = "7.1.8 --host --modules".to_string();
+        app.handle_build_options_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+        assert_eq!(app.build_args, ["7.1.8", "--host", "--modules"]);
+        assert_eq!(app.modal, Modal::None);
     }
 
     #[test]

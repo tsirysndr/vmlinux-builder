@@ -77,6 +77,8 @@ The home screen shows the selected kernel version, number of config overrides, c
 | `/`                   | Open the fuzzy kernel-version picker             |
 | `c`                   | Open the fuzzy kernel-config picker              |
 | `r`                   | Edit sandbox CPU and memory options              |
+| `o`                   | Override all arguments passed to `kbuildx build` |
+| `l`                   | Toggle the fullscreen live-log view              |
 | `Up` / `Down`         | Scroll logs and pause automatic following        |
 | `PageUp` / `PageDown` | Scroll logs by ten lines                         |
 | `End`                 | Resume following live output                     |
@@ -106,11 +108,19 @@ The selected value is stored as a build override and passed through the normal C
 
 Press `r` to edit the vCPU and memory values used by TUI builds. Use `Tab`, `Up`, or `Down` to switch fields, enter numeric values, and press `Enter` to apply. Both values must be greater than zero. Press `Esc` to cancel.
 
-The selected values are passed to the build command as `--cpus` and `--memory`. They configure a bsdkrun sandbox; direct host builds naturally use the host's available resources.
+The selected values are passed to the build command as `--cpus` and `--memory`. The CPU value defaults to the number of logical CPUs available on the host. These values configure a bsdkrun sandbox; direct host builds naturally use the host's available resources.
+
+### Build-options editor
+
+Press `o` to edit the complete argument list passed after `kbuildx build`. This allows every build option—including custom repositories, branches, defconfigs, config merges, host mode, modules, initrd, and uImage settings—to be overridden from the TUI. Shell-style single quotes, double quotes, and backslash escapes are supported.
+
+The editor starts with the currently selected kernel version, CPU count, and memory limit. Press `Enter` to apply the complete argument list or `Esc` to cancel. Once applied, this list replaces the TUI-generated version and resource arguments; config options selected with `c` are still appended as repeatable `--set-config` arguments.
 
 ### Live build logs
 
 Build stdout and stderr are read concurrently and rendered as they arrive. The log view follows the newest output automatically. Scrolling upward pauses following; press `End` to return to real-time output.
+
+Press `l` to expand the logs across the terminal and press `l` again to return to the home screen. Log scrolling, auto-follow, and build controls remain available in fullscreen mode.
 
 The in-memory log is capped at 10,000 lines to keep long builds responsive.
 

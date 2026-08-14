@@ -3,6 +3,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::consts::KERNEL_REPO;
 
+fn default_cpus() -> u32 {
+    std::thread::available_parallelism()
+        .map(|count| count.get() as u32)
+        .unwrap_or(2)
+}
+
 const HELP_BANNER: &str = concat!(
     "\x1b[38;2;255;95;135m",
     " _    ____        _ _     _      \n",
@@ -81,7 +87,7 @@ pub struct BuildArgs {
     pub uimage_name: Option<String>,
     #[arg(
         long,
-        default_value_t = 2,
+        default_value_t = default_cpus(),
         value_parser = clap::value_parser!(u32).range(1..),
         help = "Number of virtual CPUs assigned to the build sandbox."
     )]
@@ -140,7 +146,7 @@ mod tests {
             panic!("expected build command");
         };
 
-        assert_eq!(args.cpus, 2);
+        assert_eq!(args.cpus, super::default_cpus());
         assert_eq!(args.memory, 2048);
     }
 
