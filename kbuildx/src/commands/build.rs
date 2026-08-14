@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use bsdkrun_sdk::Sandbox;
 use owo_colors::{OwoColorize, Rgb};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::{cli::BuildArgs, config::KernelConfig, consts::KERNEL_REPO};
@@ -85,6 +85,70 @@ impl Runtime {
             }
         }
     }
+
+    fn export_vmlinux(&self, version_label: &str) -> Result<()> {
+        let Self::Sandbox(sandbox) = self else {
+            return Ok(());
+        };
+        let filename = format!("vmlinux-{version_label}.{}", artifact_arch());
+        let host_dir = std::env::current_dir()?.join("linux");
+        std::fs::create_dir_all(&host_dir)?;
+        for suffix in ["", ".sha256"] {
+            let artifact = format!("{filename}{suffix}");
+            export_sandbox_file(
+                sandbox,
+                &format!("/linux/{artifact}"),
+                &host_dir.join(&artifact),
+            )?;
+        }
+        println!(
+            "{} {} {}",
+            step_label("[EXPORT]"),
+            success("Copied vmlinux artifacts to host:"),
+            value(&host_dir.display().to_string())
+        );
+        Ok(())
+    }
+}
+
+fn artifact_arch() -> &'static str {
+    match std::env::consts::ARCH {
+        "aarch64" => "aarch64",
+        "x86_64" => "x86_64",
+        architecture => architecture,
+    }
+}
+
+fn export_sandbox_file(sandbox: &Sandbox, guest_path: &str, host_path: &Path) -> Result<()> {
+    let binary = std::env::var_os("BSDKRUN_BIN").unwrap_or_else(|| "bsdkrun".into());
+    let temporary = temporary_artifact_path(host_path);
+    let output = std::fs::File::create(&temporary)?;
+    let status = Command::new(binary)
+        .arg("exec")
+        .arg(sandbox.id())
+        .arg("cat")
+        .arg(guest_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(output))
+        .stderr(Stdio::inherit())
+        .status()?;
+    if !status.success() {
+        let _ = std::fs::remove_file(&temporary);
+        bail!(
+            "failed to copy sandbox artifact {guest_path} (exit {})",
+            status.code().unwrap_or(-1)
+        );
+    }
+    std::fs::rename(&temporary, host_path)?;
+    Ok(())
+}
+
+fn temporary_artifact_path(path: &Path) -> PathBuf {
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("vmlinux");
+    path.with_file_name(format!(".{filename}.part"))
 }
 
 #[cfg(target_os = "linux")]
@@ -243,6 +307,7 @@ pub fn build_kernel(args: BuildArgs) -> Result<()> {
         success("Kernel checkout is ready")
     );
     start_compilation(&runtime, &args, &version_label)?;
+    runtime.export_vmlinux(&version_label)?;
 
     Ok(())
 }
@@ -679,7 +744,9 @@ fi
 
 #[cfg(test)]
 mod tests {
-    use super::kernel_git_ref;
+    use std::path::Path;
+
+    use super::{kernel_git_ref, temporary_artifact_path};
 
     #[test]
     fn kernel_version_is_normalized_to_a_tag_ref() {
@@ -687,5 +754,13 @@ mod tests {
         assert_eq!(kernel_git_ref("v7.1.8"), "v7.1.8");
         assert_eq!(kernel_git_ref("6.6.y"), "linux-6.6.y");
         assert_eq!(kernel_git_ref("v6.6.y"), "linux-6.6.y");
+    }
+
+    #[test]
+    fn sandbox_exports_use_a_hidden_partial_file() {
+        assert_eq!(
+            temporary_artifact_path(Path::new("linux/vmlinux-7.1.8.x86_64")),
+            Path::new("linux/.vmlinux-7.1.8.x86_64.part")
+        );
     }
 }

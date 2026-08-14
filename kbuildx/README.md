@@ -345,7 +345,7 @@ Optional outputs include:
 - `uInitrd` and checksum on arm64
 - `modules-<kernelrelease>.tar.gz` and checksum
 
-Artifacts live in `./linux` during direct host builds and `/linux` inside the persistent bsdkrun sandbox otherwise.
+Artifacts live in `./linux` during direct host builds. Sandbox builds keep their working files in `/linux` and copy the finished `vmlinux-<version>.<architecture>` plus its SHA-256 file into the host's `./linux` directory before returning successfully.
 
 ## GitHub Actions E2E tests
 
