@@ -5,7 +5,9 @@ export PATH=/usr/pkg/bin:/usr/pkg/sbin:/sbin:/usr/sbin:/bin:/usr/bin
 data_disk=/dev/ld1a
 if ! mount | grep -q ' /root/kbuildx '; then
     mkdir -p /root/kbuildx
-    if ! mount "$data_disk" /root/kbuildx 2>/dev/null; then
+    if fstyp "$data_disk" 2>/dev/null | grep -q ffs; then
+        mount "$data_disk" /root/kbuildx
+    else
         newfs "$data_disk"
         mount "$data_disk" /root/kbuildx
     fi

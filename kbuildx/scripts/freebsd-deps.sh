@@ -3,7 +3,9 @@ set -eu
 data_disk=/dev/vtbd1
 if ! mount | grep -q ' /root/kbuildx '; then
     mkdir -p /root/kbuildx
-    if ! mount "$data_disk" /root/kbuildx 2>/dev/null; then
+    if fstyp "$data_disk" 2>/dev/null | grep -q ufs; then
+        mount "$data_disk" /root/kbuildx
+    else
         newfs "$data_disk"
         mount "$data_disk" /root/kbuildx
     fi
