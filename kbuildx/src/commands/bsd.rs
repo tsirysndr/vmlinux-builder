@@ -255,15 +255,7 @@ fn install_bsd_dependencies(runtime: &BsdRuntime, os: BuildOs, version: &str) ->
         action("Installing BSD build dependencies")
     );
     match os {
-        BuildOs::Freebsd => runtime.run(
-            "/bin/sh",
-            &[
-                "-c",
-                "env ASSUME_ALWAYS_YES=yes pkg install -y git ca_root_nss",
-            ],
-            None,
-            true,
-        ),
+        BuildOs::Freebsd => runtime.run("/bin/sh", &["-s"], Some(FREEBSD_DEPS_SCRIPT), true),
         BuildOs::Netbsd => runtime.run(
             "/bin/sh",
             &["-s", "--", version],
@@ -391,23 +383,8 @@ fn write_host_checksum(path: &Path) -> Result<()> {
     Ok(())
 }
 
-const NETBSD_DEPS_SCRIPT: &str = r#"set -eu
-version=$1
-export PATH=/usr/pkg/bin:/sbin:/usr/sbin:/bin:/usr/bin
-case "$(uname -m)" in
-    amd64|x86_64) pkg_arch=x86_64 ;;
-    *) pkg_arch=aarch64 ;;
-esac
-case "$version" in
-    current|trunk) pkg_release=10.1 ;;
-    *) pkg_release=${version%%-*} ;;
-esac
-mkdir -p /usr/pkg/etc/pkgin
-printf 'https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/%s/%s/All\n' \
-    "$pkg_arch" "$pkg_release" > /usr/pkg/etc/pkgin/repositories.conf
-pkgin -y update
-pkgin -y install git-base mozilla-rootcerts-openssl || pkgin -y install git
-"#;
+const NETBSD_DEPS_SCRIPT: &str = include_str!("../../scripts/netbsd-deps.sh");
+const FREEBSD_DEPS_SCRIPT: &str = include_str!("../../scripts/freebsd-deps.sh");
 
 fn default_bsd_ref(os: BuildOs, version: &str) -> String {
     match os {
@@ -437,135 +414,8 @@ fn safe_label(input: &str) -> String {
         .collect()
 }
 
-const FREEBSD_BUILD_SCRIPT: &str = r#"set -eu
-version=$1; repo=$2; ref=$3; label=$4; requested_config=$5; bundle=$6
-work=/root/kbuildx
-src=$work/freebsd-src
-obj=$work/freebsd-obj
-artifacts=$work/artifacts
-mkdir -p "$work" "$artifacts"
-if git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git -C "$src" fetch --force --depth 1 origin "$ref"
-    git -C "$src" checkout --force --detach FETCH_HEAD
-else
-    rm -rf "$src"
-    git clone --depth 1 --branch "$ref" "$repo" "$src"
-fi
-arch=$(uname -p)
-host_arch=$(uname -m)
-case "$host_arch" in amd64|x86_64) artifact_arch=x86_64 ;; *) artifact_arch=aarch64 ;; esac
-config=$requested_config
-if [ -z "$config" ]; then
-    if [ "$bundle" = 1 ] && [ -f "$src/sys/amd64/conf/FIRECRACKER" ]; then
-        config=FIRECRACKER
-    else
-        config=GENERIC
-    fi
-fi
-rm -rf "$obj"
-mkdir -p "$obj"
-jobs=$(sysctl -n hw.ncpu)
-env MAKEOBJDIRPREFIX="$obj" make -C "$src" -DNO_MODULES -j"$jobs" buildkernel KERNCONF="$config"
-kernel=$(find "$obj" -type f -path "*/sys/$config/kernel" | head -n 1)
-test -n "$kernel" -a -f "$kernel"
-base="freebsd-${label}.${artifact_arch}"
-cp "$kernel" "$artifacts/$base.kernel"
-if [ "$bundle" = 1 ]; then
-    root=$work/freebsd-rootfs
-    rm -rf "$root"; mkdir -p "$root"
-    release=${version%-RELEASE}
-    fetch -o "$work/base.txz" "https://download.freebsd.org/releases/${arch}/${release}-RELEASE/base.txz"
-    tar -xpf "$work/base.txz" -C "$root"
-    env MAKEOBJDIRPREFIX="$obj" make -C "$src" -DNO_MODULES installkernel KERNCONF="$config" DESTDIR="$root"
-    mkdir -p "$root/usr/local/sbin" "$root/usr/local/etc/rc.d"
-    cp /usr/local/sbin/bsdkrun-agent "$root/usr/local/sbin/bsdkrun-agent"
-    chmod 755 "$root/usr/local/sbin/bsdkrun-agent"
-    cat > "$root/usr/local/etc/rc.d/bsdkrun_agent" <<'RC'
-#!/bin/sh
-# PROVIDE: bsdkrun_agent
-# REQUIRE: NETWORKING
-. /etc/rc.subr
-name=bsdkrun_agent
-rcvar=bsdkrun_agent_enable
-command=/usr/sbin/daemon
-pidfile=/var/run/bsdkrun_agent.pid
-command_args="-f -P ${pidfile} -r /usr/local/sbin/bsdkrun-agent"
-load_rc_config $name
-run_rc_command "$1"
-RC
-    chmod 555 "$root/usr/local/etc/rc.d/bsdkrun_agent"
-    sysrc -f "$root/etc/rc.conf" bsdkrun_agent_enable=YES
-    sysrc -f "$root/etc/rc.conf" ifconfig_vtnet0=DHCP
-    printf '/dev/vtbd0 / ufs rw 1 1\n' > "$root/etc/fstab"
-    makefs -t ffs -s 4g -o version=2 "$artifacts/$base.img" "$root"
-fi
-"#;
-
-const NETBSD_BUILD_SCRIPT: &str = r#"set -eu
-version=$1; repo=$2; ref=$3; label=$4; requested_config=$5; bundle=$6
-export PATH=/usr/pkg/bin:/sbin:/usr/sbin:/bin:/usr/bin
-work=/root/kbuildx
-src=$work/netbsd-src
-obj=$work/netbsd-obj
-tools=$work/netbsd-tools
-dest=$work/netbsd-rootfs
-artifacts=$work/artifacts
-mkdir -p "$work" "$artifacts"
-if git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    git -C "$src" fetch --force --depth 1 origin "$ref"
-    git -C "$src" checkout --force --detach FETCH_HEAD
-else
-    rm -rf "$src"
-    git clone --depth 1 --branch "$ref" "$repo" "$src"
-fi
-machine=$(uname -m)
-case "$machine" in amd64|x86_64) artifact_arch=x86_64 ;; *) artifact_arch=aarch64 ;; esac
-config=$requested_config
-if [ -z "$config" ]; then
-    if [ "$bundle" = 1 ] && find "$src/sys/arch" -path '*/conf/MICROVM' | grep -q .; then
-        config=MICROVM
-    elif find "$src/sys/arch" -path '*/conf/GENERIC64' | grep -q . && [ "$artifact_arch" = aarch64 ]; then
-        config=GENERIC64
-    else
-        config=GENERIC
-    fi
-fi
-rm -rf "$obj" "$tools"
-jobs=$(sysctl -n hw.ncpu)
-cd "$src"
-./build.sh -U -u -j"$jobs" -O "$obj" -T "$tools" tools
-./build.sh -U -u -j"$jobs" -O "$obj" -T "$tools" kernel="$config"
-kernel=$(find "$obj" -type f -path "*/compile/$config/netbsd" | head -n 1)
-test -n "$kernel" -a -f "$kernel"
-base="netbsd-${label}.${artifact_arch}"
-cp "$kernel" "$artifacts/$base.kernel"
-if [ "$bundle" = 1 ]; then
-    rm -rf "$dest"; mkdir -p "$dest"
-    ./build.sh -U -u -j"$jobs" -O "$obj" -T "$tools" -D "$dest" distribution
-    mkdir -p "$dest/usr/local/sbin" "$dest/etc/rc.d"
-    cp /usr/local/sbin/bsdkrun-agent "$dest/usr/local/sbin/bsdkrun-agent"
-    chmod 755 "$dest/usr/local/sbin/bsdkrun-agent"
-    cat > "$dest/etc/rc.d/bsdkrun_agent" <<'RC'
-#!/bin/sh
-# PROVIDE: bsdkrun_agent
-# REQUIRE: NETWORKING
-. /etc/rc.subr
-name=bsdkrun_agent
-rcvar=$name
-command=/usr/local/sbin/bsdkrun-agent
-pidfile=/var/run/bsdkrun_agent.pid
-start_cmd=agent_start
-agent_start() { ${command} & echo $! > ${pidfile}; }
-load_rc_config $name
-run_rc_command "$1"
-RC
-    chmod 555 "$dest/etc/rc.d/bsdkrun_agent"
-    printf '\nbsdkrun_agent=YES\nrc_configured=YES\ndhcpcd=YES\n' >> "$dest/etc/rc.conf"
-    printf '/dev/ld0a / ffs rw 1 1\nptyfs /dev/pts ptyfs rw 0 0\n' > "$dest/etc/fstab"
-    (cd "$dest/dev" && sh ./MAKEDEV all)
-    makefs -t ffs -s 4g "$artifacts/$base.img" "$dest"
-fi
-"#;
+const FREEBSD_BUILD_SCRIPT: &str = include_str!("../../scripts/freebsd-build.sh");
+const NETBSD_BUILD_SCRIPT: &str = include_str!("../../scripts/netbsd-build.sh");
 
 #[cfg(test)]
 mod tests {
@@ -577,7 +427,8 @@ mod tests {
     use crate::cli::BuildOs;
 
     use super::{
-        FREEBSD_BUILD_SCRIPT, NETBSD_BUILD_SCRIPT, NETBSD_DEPS_SCRIPT, default_bsd_ref, safe_label,
+        FREEBSD_BUILD_SCRIPT, FREEBSD_DEPS_SCRIPT, NETBSD_BUILD_SCRIPT, NETBSD_DEPS_SCRIPT,
+        default_bsd_ref, safe_label,
     };
 
     #[test]
@@ -604,6 +455,7 @@ mod tests {
     fn embedded_bsd_shell_scripts_are_valid() {
         for script in [
             FREEBSD_BUILD_SCRIPT,
+            FREEBSD_DEPS_SCRIPT,
             NETBSD_BUILD_SCRIPT,
             NETBSD_DEPS_SCRIPT,
         ] {
