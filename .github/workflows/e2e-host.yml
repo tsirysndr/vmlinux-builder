@@ -2,6 +2,8 @@ name: Host end-to-end tests
 
 on:
   push:
+    tags-ignore:
+      - "kbuildx-v*"
   pull_request:
   workflow_dispatch:
 

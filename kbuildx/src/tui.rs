@@ -79,6 +79,7 @@ struct App {
     logs: Vec<String>,
     partial_log: String,
     pending_carriage_return: bool,
+    terminal_escape_state: u8,
     log_top: usize,
     follow_logs: bool,
     fullscreen_logs: bool,
@@ -131,6 +132,7 @@ impl App {
             logs: vec!["Loading kernel versions…".to_string()],
             partial_log: String::new(),
             pending_carriage_return: false,
+            terminal_escape_state: 0,
             log_top: 0,
             follow_logs: true,
             fullscreen_logs: false,
@@ -253,6 +255,7 @@ impl App {
         self.logs.clear();
         self.partial_log.clear();
         self.pending_carriage_return = false;
+        self.terminal_escape_state = 0;
         self.logs.push(if self.build_args.is_empty() {
             format!(
                 "Starting Linux {} with {} config override(s), {} vCPU, {} MiB",
@@ -476,7 +479,35 @@ impl App {
     }
 
     fn consume_output(&mut self, chunk: &[u8]) {
-        for character in String::from_utf8_lossy(chunk).chars() {
+        let mut visible = Vec::with_capacity(chunk.len());
+        for &byte in chunk {
+            match self.terminal_escape_state {
+                0 if byte == 0x1b => self.terminal_escape_state = 1,
+                0 => visible.push(byte),
+                1 => {
+                    self.terminal_escape_state = match byte {
+                        b'[' => 2,
+                        b']' => 3,
+                        _ => 0,
+                    };
+                }
+                2 => {
+                    if (0x40..=0x7e).contains(&byte) {
+                        self.terminal_escape_state = 0;
+                    }
+                }
+                3 => match byte {
+                    0x07 => self.terminal_escape_state = 0,
+                    0x1b => self.terminal_escape_state = 4,
+                    _ => {}
+                },
+                4 => {
+                    self.terminal_escape_state = if byte == b'\\' { 0 } else { 3 };
+                }
+                _ => self.terminal_escape_state = 0,
+            }
+        }
+        for character in String::from_utf8_lossy(&visible).chars() {
             if self.pending_carriage_return {
                 self.pending_carriage_return = false;
                 if character == '\n' {
@@ -488,6 +519,11 @@ impl App {
             match character {
                 '\r' => self.pending_carriage_return = true,
                 '\n' => self.finish_partial_log(),
+                '\u{8}' => {
+                    self.partial_log.pop();
+                }
+                '\t' => self.partial_log.push_str("    "),
+                character if character.is_control() => {}
                 _ => self.partial_log.push(character),
             }
         }
@@ -749,7 +785,8 @@ fn draw_fullscreen_logs(frame: &mut Frame, app: &mut App) {
 
 fn draw_logs(frame: &mut Frame, app: &mut App, area: Rect) {
     let height = area.height.saturating_sub(2) as usize;
-    let max_top = app.logs.len().saturating_sub(height);
+    let visible_lines = app.logs.len() + usize::from(!app.partial_log.is_empty());
+    let max_top = visible_lines.saturating_sub(height);
     if app.follow_logs {
         app.log_top = max_top;
     } else {
@@ -1134,6 +1171,19 @@ mod tests {
 
         assert_eq!(app.logs, ["compile 20%"]);
         assert_eq!(app.partial_log, "next");
+    }
+
+    #[test]
+    fn output_chunks_remove_terminal_control_sequences() {
+        let mut app = App::new();
+        app.logs.clear();
+
+        app.consume_output(b"\x1b[38;2;125;");
+        app.consume_output(b"86;244m[1/4 SANDBOX]\x1b[0m Configuring sandbox\n");
+        app.consume_output(b"install 10%\x1b[2K\rinstall 20%");
+
+        assert_eq!(app.logs, ["[1/4 SANDBOX] Configuring sandbox"]);
+        assert_eq!(app.partial_log, "install 20%");
     }
 
     #[cfg(unix)]

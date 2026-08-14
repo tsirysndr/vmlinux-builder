@@ -2,6 +2,8 @@ name: Nix build
 
 on:
   push:
+    tags-ignore:
+      - "kbuildx-v*"
   pull_request:
   workflow_dispatch:
 
@@ -19,7 +21,7 @@ jobs:
             system: x86_64-linux
           - runner: ubuntu-24.04-arm
             system: aarch64-linux
-          - runner: macos-15
+          - runner: macos-latest
             system: aarch64-darwin
     runs-on: ${{ matrix.runner }}
 
