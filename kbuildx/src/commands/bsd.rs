@@ -95,7 +95,11 @@ pub fn build_bsd(args: BuildArgs) -> Result<()> {
     {
         bail!("Linux config, module, initrd, and uImage options cannot be used with BSD builds");
     }
-    let version = args.kernel_version.as_deref().unwrap_or("current");
+    let version = args
+        .kernel_version
+        .as_deref()
+        .filter(|version| !version.is_empty())
+        .unwrap_or("current");
     let os = args.os;
     let os_name = match os {
         BuildOs::Freebsd => "freebsd",
