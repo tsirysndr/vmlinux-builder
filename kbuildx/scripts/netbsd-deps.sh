@@ -58,5 +58,5 @@ mkdir -p /usr/pkg/etc/pkgin
 printf '%s\n' "$package_path" > /usr/pkg/etc/pkgin/repositories.conf
 
 pkgin -y update
-pkgin -y install git
+pkgin -y install git || cat /var/db/pkgin/pkg_install-err.log
 git --version
