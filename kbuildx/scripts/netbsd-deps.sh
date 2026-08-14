@@ -8,7 +8,7 @@ if ! mount | grep -q ' /root/kbuildx '; then
     if fstyp "$data_disk" 2>/dev/null | grep -q ffs; then
         mount "$data_disk" /root/kbuildx
     else
-        newfs "$data_disk"
+        newfs -i 16384 "$data_disk"
         mount "$data_disk" /root/kbuildx
     fi
 fi
