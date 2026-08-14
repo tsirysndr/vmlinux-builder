@@ -7,9 +7,12 @@ data_raw=/dev/rld1a
 if ! mount | grep -q ' /root/kbuildx '; then
     mkdir -p /root/kbuildx
     if fstyp "$data_raw" 2>/dev/null | grep -q ffs; then
+        printf '%s\n' 'Mounting existing NetBSD build disk'
         mount "$data_disk" /root/kbuildx
     else
+        printf '%s\n' 'Formatting NetBSD build disk'
         newfs -b 32768 -f 4096 -i 16384 "$data_disk"
+        printf '%s\n' 'Mounting new NetBSD build disk'
         mount "$data_disk" /root/kbuildx
     fi
 fi
