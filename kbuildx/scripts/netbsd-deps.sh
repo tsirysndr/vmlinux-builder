@@ -3,9 +3,10 @@ set -eu
 
 export PATH=/usr/pkg/bin:/usr/pkg/sbin:/sbin:/usr/sbin:/bin:/usr/bin
 data_disk=/dev/ld1a
+data_raw=/dev/rld1a
 if ! mount | grep -q ' /root/kbuildx '; then
     mkdir -p /root/kbuildx
-    if fstyp "$data_disk" 2>/dev/null | grep -q ffs; then
+    if fstyp "$data_raw" 2>/dev/null | grep -q ffs; then
         mount "$data_disk" /root/kbuildx
     else
         newfs -i 16384 "$data_disk"
