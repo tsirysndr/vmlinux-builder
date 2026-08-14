@@ -287,7 +287,7 @@ fn install_deps(runtime: &Runtime) -> Result<()> {
             r#"set -e
 apk add --no-cache git build-base flex bison ncurses-dev openssl-dev gcc bc \
     elfutils-dev pahole curl tar gzip u-boot-tools mkinitfs bash perl python3 \
-    rsync cpio xz zstd findutils"#,
+    rsync cpio xz zstd findutils linux-headers"#,
         ],
         None,
         true,

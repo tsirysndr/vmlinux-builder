@@ -35,6 +35,7 @@ RUN apk add --no-cache \
   cpio \
   xz \
   zstd \
-  findutils
+  findutils \
+  linux-headers
 
 ENTRYPOINT [ "/usr/local/bin/kbuildx" ]
