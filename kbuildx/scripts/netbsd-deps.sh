@@ -55,6 +55,10 @@ if ! command -v pkgin >/dev/null 2>&1; then
 fi
 
 mkdir -p /usr/pkg/etc/pkgin
+# The minimal image may ship an unusable Perl directory placeholder; pkgsrc
+# needs to create the hierarchy while unpacking git's Perl helpers.
+rm -rf /usr/pkg/lib/perl5
+mkdir -p /usr/pkg/lib/perl5
 printf '%s\n' "$package_path" > /usr/pkg/etc/pkgin/repositories.conf
 
 pkgin -y update
