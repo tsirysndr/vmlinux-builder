@@ -46,16 +46,42 @@ impl Runtime {
                 Ok(status.code().unwrap_or_default())
             }
             Self::Sandbox(sandbox) => {
-                let mut command = sandbox
-                    .command(program)
-                    .args(args.iter().copied())
-                    .stdout(std::io::stdout())
-                    .stderr(std::io::stderr())
-                    .tty(tty);
-                if let Some(input) = stdin {
-                    command = command.stdin(input);
+                let binary = std::env::var_os("BSDKRUN_BIN").unwrap_or_else(|| "bsdkrun".into());
+                let mut command = Command::new(binary);
+                command.arg("exec");
+                if tty {
+                    command.arg("-t");
                 }
-                Ok(command.run()?.ok_or_err()?.exit_code)
+                command
+                    .arg(sandbox.id())
+                    .arg(program)
+                    .args(args)
+                    .stdout(Stdio::inherit())
+                    .stderr(Stdio::inherit())
+                    .stdin(if stdin.is_some() {
+                        Stdio::piped()
+                    } else {
+                        Stdio::null()
+                    });
+                let mut child = command.spawn()?;
+                if let Some(input) = stdin {
+                    child
+                        .stdin
+                        .take()
+                        .expect("piped stdin must be available")
+                        .write_all(input.as_bytes())?;
+                }
+                let status = child.wait()?;
+                if !status.success() {
+                    bail!(
+                        "command failed (exit {}): bsdkrun exec {} {} {}",
+                        status.code().unwrap_or(-1),
+                        sandbox.id(),
+                        program,
+                        args.join(" ")
+                    );
+                }
+                Ok(status.code().unwrap_or_default())
             }
         }
     }
