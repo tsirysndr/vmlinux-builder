@@ -46,6 +46,12 @@ if [ -e /etc/ssl/cert.pem ] || [ -e /etc/openssl/certs/ca-certificates.crt ]; th
     printf '%s\n' "$package_path" > /usr/pkg/etc/pkgin/repositories.conf
     pkgin -y update
 fi
+# Install xmlcatmgr separately: its post-install step may replace the man
+# directory after our initial layout setup. Recreate it before git-base pulls
+# in curl's large manpage set.
+pkgin -y install xmlcatmgr || true
+rm -rf /usr/pkg/man
+mkdir -p /usr/pkg/man/man1 /usr/pkg/man/man3 /usr/pkg/man/man5 /usr/pkg/man/man7
 if ! pkgin -y install git-base; then
     # pkgin may roll back the transaction after a non-essential package
     # post-install warning. Retry the requested package directly, forcing the
