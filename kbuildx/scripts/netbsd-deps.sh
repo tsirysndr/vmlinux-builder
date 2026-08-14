@@ -22,6 +22,7 @@ if ! command -v pkgin >/dev/null 2>&1; then
 fi
 if [ ! -e /etc/openssl/certs/ca-certificates.crt ] && [ ! -e /etc/ssl/cert.pem ]; then
     printf '%s\n' 'Bootstrapping CA certificates with pkg_add'
+    mkdir -p /etc/openssl/certs
     export PKG_PATH="$bootstrap_path"
     pkg_add mozilla-rootcerts-openssl
 fi
