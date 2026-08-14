@@ -58,25 +58,5 @@ mkdir -p /usr/pkg/etc/pkgin
 printf '%s\n' "$package_path" > /usr/pkg/etc/pkgin/repositories.conf
 
 pkgin -y update
-
-if pkgin -y install git-base; then
-    :
-else
-    printf '%s\n' 'pkgin returned an error' >&2
-
-    # The transaction may nevertheless have installed git.
-    if command -v git >/dev/null 2>&1; then
-        printf '%s\n' \
-            'pkgin reported errors but git-base is installed; continuing'
-    else
-        printf '%s\n' 'pkgin installation failed; error log:' >&2
-
-        if [ -f /var/db/pkgin/pkg_install-err.log ]; then
-            cat /var/db/pkgin/pkg_install-err.log >&2
-        fi
-
-        exit 1
-    fi
-fi
-
+pkgin install -y git
 git --version
