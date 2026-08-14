@@ -68,5 +68,12 @@ jobs:
         working-directory: ./kbuildx
 
       - name: Test kernel checkout
-        run: ./target/release/kbuildx build 6.6.1
+        shell: bash
+        run: |
+          # bsdkrun's VM-backed filesystem keeps host descriptors open while
+          # materializing the kernel tree, which contains more than 80K files.
+          # Raise the limit in this shell so kbuildx and its VM inherit it.
+          ulimit -n "$(ulimit -Hn)"
+          echo "File descriptor limit: $(ulimit -n)"
+          ./target/release/kbuildx build 6.6.1
         working-directory: ./kbuildx
