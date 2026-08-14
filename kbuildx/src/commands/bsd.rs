@@ -448,7 +448,10 @@ mod tests {
             "netbsd-10-1-RELEASE"
         );
         assert_eq!(default_bsd_ref(BuildOs::Netbsd, "current"), "trunk");
-        assert_eq!(default_bsd_ref(BuildOs::Netbsd, "11.99.7"), "trunk");
+        assert_eq!(
+            default_bsd_ref(BuildOs::Netbsd, "11.0"),
+            "netbsd-11-0-RELEASE"
+        );
     }
 
     #[test]
