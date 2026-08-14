@@ -13,24 +13,29 @@ case "$host_release" in
     10.*) pkg_release=${host_release%%-*} ;;
     *) pkg_release=${host_release%%-*} ;;
 esac
-bootstrap_path="http://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$pkg_arch/$pkg_release/All/"
-secure_path="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$pkg_arch/$pkg_release/All/"
+package_path="http://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$pkg_arch/$pkg_release/All/"
+# The prepared bsdkrun NetBSD image has no CA bundle and cannot install one
+# into its read-only certificate layout; use the official CDN over HTTP for
+# this disposable CI build guest so pkg_add/pkgin can bootstrap successfully.
 if ! command -v pkgin >/dev/null 2>&1; then
     printf '%s\n' 'Bootstrapping pkgin with pkg_add'
-    export PKG_PATH="$bootstrap_path"
+    export PKG_PATH="$package_path"
     pkg_add pkgin
 fi
-if [ ! -e /etc/openssl/certs/ca-certificates.crt ] && [ ! -e /etc/ssl/cert.pem ]; then
-    printf '%s\n' 'Bootstrapping CA certificates with pkg_add'
-    mkdir -p /etc/openssl/certs
-    export PKG_PATH="$bootstrap_path"
-    pkg_add mozilla-rootcerts-openssl
-fi
-if command -v mozilla-rootcerts >/dev/null 2>&1; then
-    mozilla-rootcerts install
-fi
 mkdir -p /usr/pkg/etc/pkgin
-export PKG_PATH="$secure_path"
-printf '%s\n' "$secure_path" > /usr/pkg/etc/pkgin/repositories.conf
+export PKG_PATH="$package_path"
+printf '%s\n' "$package_path" > /usr/pkg/etc/pkgin/repositories.conf
 pkgin -y update
-pkgin -y install git-base mozilla-rootcerts-openssl || pkgin -y install git
+if pkgin -y install mozilla-rootcerts-openssl; then
+    if command -v mozilla-rootcerts >/dev/null 2>&1; then
+        mozilla-rootcerts install || true
+    fi
+fi
+secure_path="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$pkg_arch/$pkg_release/All/"
+if [ -e /etc/ssl/cert.pem ] || [ -e /etc/openssl/certs/ca-certificates.crt ]; then
+    package_path="$secure_path"
+    export PKG_PATH="$package_path"
+    printf '%s\n' "$package_path" > /usr/pkg/etc/pkgin/repositories.conf
+    pkgin -y update
+fi
+pkgin -y install git-base || pkgin -y install git
