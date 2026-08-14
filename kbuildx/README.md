@@ -436,7 +436,7 @@ A separate host E2E workflow runs directly on `ubuntu-latest`:
 
 The BSD E2E workflow runs a kernel-only build matrix on KVM-enabled `ubuntu-latest` runners:
 
-- Builds FreeBSD 15.1 and NetBSD 11.0 in their matching bsdkrun guests.
+- Builds FreeBSD 15.1 and NetBSD 11.99.7 in their matching bsdkrun guests.
 - Uses all runner CPUs and 8192 MiB of guest memory.
 - Caches downloaded bsdkrun BSD images and Rust build output.
 - Verifies each exported kernel and its SHA-256 checksum.

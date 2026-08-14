@@ -5,7 +5,9 @@ version=$1
 export PATH=/usr/pkg/bin:/usr/pkg/sbin:/sbin:/usr/sbin:/bin:/usr/bin
 if command -v resize_ffs >/dev/null 2>&1; then
     printf '%s\n' 'Growing NetBSD FFS root filesystem to fill the virtual disk'
-    resize_ffs -y /dev/ld0a
+    df -h /
+    resize_ffs -y /dev/rld0a
+    df -h /
 else
     printf '%s\n' 'NetBSD resize_ffs is unavailable; cannot use the expanded build disk' >&2
     exit 1
@@ -40,4 +42,4 @@ if [ -e /etc/ssl/cert.pem ] || [ -e /etc/openssl/certs/ca-certificates.crt ]; th
     printf '%s\n' "$package_path" > /usr/pkg/etc/pkgin/repositories.conf
     pkgin -y update
 fi
-pkgin -y install git-base || pkgin -y install git
+pkgin -y install git-base

@@ -390,7 +390,11 @@ fn default_bsd_ref(os: BuildOs, version: &str) -> String {
     match os {
         BuildOs::Freebsd if matches!(version, "current" | "main") => "main".to_string(),
         BuildOs::Freebsd => format!("releng/{}", version.trim_end_matches("-RELEASE")),
-        BuildOs::Netbsd if matches!(version, "current" | "trunk") => "trunk".to_string(),
+        BuildOs::Netbsd
+            if matches!(version, "current" | "trunk") || version.starts_with("11.99.") =>
+        {
+            "trunk".to_string()
+        }
         BuildOs::Netbsd => format!(
             "netbsd-{}-RELEASE",
             version
@@ -444,6 +448,7 @@ mod tests {
             "netbsd-10-1-RELEASE"
         );
         assert_eq!(default_bsd_ref(BuildOs::Netbsd, "current"), "trunk");
+        assert_eq!(default_bsd_ref(BuildOs::Netbsd, "11.99.7"), "trunk");
     }
 
     #[test]
