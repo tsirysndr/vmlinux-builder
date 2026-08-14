@@ -36,8 +36,8 @@ fi
 rm -rf "$obj" "$tools"
 jobs=$(sysctl -n hw.ncpu)
 cd "$src"
-./build.sh -U -u -j"$jobs" -O "$obj" -T "$tools" tools
-./build.sh -U -u -j"$jobs" -O "$obj" -T "$tools" kernel="$config"
+./build.sh -U -u -j"$jobs" -O "$obj" -T "$tools" tools || cat /tmp/nbbu*-config.log
+./build.sh -U -u -j"$jobs" -O "$obj" -T "$tools" kernel="$config" || cat /tmp/nbbu*-config.log
 kernel=$(find "$obj" -type f -path "*/compile/$config/netbsd" | head -n 1)
 test -n "$kernel" -a -f "$kernel"
 base="netbsd-${label}.${artifact_arch}"
