@@ -213,7 +213,8 @@ fn install_deps(sbx: &Sandbox) -> Result<()> {
             "-c",
             r#"set -e
 apk add --no-cache git build-base flex bison ncurses-dev openssl-dev gcc bc \
-    elfutils-dev pahole curl tar gzip u-boot-tools mkinitfs"#,
+    elfutils-dev pahole curl tar gzip u-boot-tools mkinitfs bash perl python3 \
+    rsync cpio xz zstd findutils"#,
         ])
         .stdout(std::io::stdout())
         .stderr(std::io::stderr())
@@ -326,20 +327,21 @@ fn start_compilation(sbx: &Sandbox, args: &BuildArgs, version_label: &str) -> Re
 kernel_dir="${PWD%/}/linux"
 cd "$kernel_dir"
 
-default_config=$1
-version_label=$2
-defconfig=$3
-merge_config=$4
-gen_initrd=$5
-gen_modules=$6
-gen_uimage=$7
-uimage_arch=$8
-uimage_os=$9
-uimage_type=${10}
-uimage_comp=${11}
-uimage_load=${12}
-uimage_entry=${13}
-uimage_name=${14}
+default_config=/tmp/kbuildx-default.config
+cat > "$default_config"
+version_label=$1
+defconfig=$2
+merge_config=$3
+gen_initrd=$4
+gen_modules=$5
+gen_uimage=$6
+uimage_arch=$7
+uimage_os=$8
+uimage_type=$9
+uimage_comp=${10}
+uimage_load=${11}
+uimage_entry=${12}
+uimage_name=${13}
 
 # Preserve a config stored in the checkout before mrproper removes .config.
 merge_file=""
@@ -360,17 +362,17 @@ if [ -n "$defconfig" ]; then
     printf '%s\n' "Using board defconfig $defconfig"
     make "$defconfig"
     cp .config board.config
-    printf '%s\n' "$default_config" > default.config
+    cp "$default_config" default.config
     scripts/kconfig/merge_config.sh -m default.config board.config
     printf '%s\n' '# CONFIG_WERROR is not set' >> .config
 elif [ -n "$merge_config" ]; then
-    printf '%s\n' "$default_config" > .config
+    cp "$default_config" .config
     case "$merge_config" in
         http://*|https://*) curl --fail --location "$merge_config" >> .config ;;
         *) cat "$merge_file" >> .config ;;
     esac
 else
-    printf '%s\n' "$default_config" > .config
+    cp "$default_config" .config
 fi
 
 make olddefconfig
@@ -462,9 +464,8 @@ if [ "$gen_modules" = 1 ]; then
         printf '%s\n' '--modules requested but CONFIG_MODULES is disabled; skipping'
     fi
 fi
-"#,
+            "#,
             "sh",
-            &kernel_config,
             version_label,
             defconfig,
             merge_config,
@@ -479,6 +480,7 @@ fi
             &args.uimage_entry,
             uimage_name,
         ])
+        .stdin(&kernel_config)
         .stdout(std::io::stdout())
         .stderr(std::io::stderr())
         .tty(true)
