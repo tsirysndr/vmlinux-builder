@@ -19,7 +19,6 @@ use crate::{
 const FREEBSD_REPO: &str = "https://git.FreeBSD.org/src.git";
 const NETBSD_REPO: &str = "https://github.com/NetBSD/src.git";
 const BSD_DISK_SIZE: &str = "40G";
-const BSD_BUILD_DISK_SIZE: u64 = 16 * 1024 * 1024 * 1024;
 const BSD_AGENT_TIMEOUT: Duration = Duration::from_secs(180);
 
 fn step(label: &str) -> String {
@@ -133,7 +132,7 @@ pub fn build_bsd(args: BuildArgs) -> Result<()> {
         action("version"),
         value(version)
     );
-    let runtime = start_bsd_sandbox(os, version, args.cpus, args.memory)?;
+    let runtime = start_bsd_sandbox(os, version, args.cpus, args.memory, &args.disk_size)?;
     install_bsd_dependencies(&runtime, os, version)?;
     build_bsd_kernel(
         &runtime,
@@ -149,7 +148,13 @@ pub fn build_bsd(args: BuildArgs) -> Result<()> {
     Ok(())
 }
 
-fn start_bsd_sandbox(os: BuildOs, version: &str, cpus: u32, memory: u32) -> Result<BsdRuntime> {
+fn start_bsd_sandbox(
+    os: BuildOs,
+    version: &str,
+    cpus: u32,
+    memory: u32,
+    disk_size: &str,
+) -> Result<BsdRuntime> {
     let os_name = match os {
         BuildOs::Freebsd => "freebsd",
         BuildOs::Netbsd => "netbsd",
@@ -184,7 +189,7 @@ fn start_bsd_sandbox(os: BuildOs, version: &str, cpus: u32, memory: u32) -> Resu
                     .write(true)
                     .open(&build_disk)
                     .with_context(|| format!("creating {}", build_disk.display()))?
-                    .set_len(BSD_BUILD_DISK_SIZE)
+                    .set_len(parse_disk_size(disk_size)?)
                     .with_context(|| format!("sizing {}", build_disk.display()))?;
             }
             command
@@ -236,6 +241,22 @@ fn start_bsd_sandbox(os: BuildOs, version: &str, cpus: u32, memory: u32) -> Resu
         value(sandbox.id())
     );
     Ok(BsdRuntime { sandbox })
+}
+
+fn parse_disk_size(value: &str) -> Result<u64> {
+    let value = value.trim();
+    let upper = value.to_ascii_uppercase();
+    let (number, multiplier) = match upper.strip_suffix('G') {
+        Some(number) => (number, 1024_u64.pow(3)),
+        None => match upper.strip_suffix('M') {
+            Some(number) => (number, 1024_u64.pow(2)),
+            None => (value, 1),
+        },
+    };
+    number
+        .parse::<u64>()
+        .context("disk size must be bytes, MiB (M), or GiB (G)")
+        .map(|n| n * multiplier)
 }
 
 fn wait_for_bsd_agent(sandbox: &Sandbox) -> Result<()> {

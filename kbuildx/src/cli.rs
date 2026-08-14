@@ -118,6 +118,12 @@ pub struct BuildArgs {
     )]
     pub memory: u32,
     #[arg(
+        long = "disk-size",
+        default_value = "16G",
+        help = "Size of the persistent BSD build disk."
+    )]
+    pub disk_size: String,
+    #[arg(
         long = "set-config",
         value_name = "NAME=VALUE",
         help = "Override a built-in kernel config option (repeatable)."
