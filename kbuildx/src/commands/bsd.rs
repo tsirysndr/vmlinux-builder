@@ -19,6 +19,7 @@ use crate::{
 const FREEBSD_REPO: &str = "https://git.FreeBSD.org/src.git";
 const NETBSD_REPO: &str = "https://github.com/NetBSD/src.git";
 const BSD_DISK_SIZE: &str = "40G";
+const BSD_BUILD_DISK_SIZE: u64 = 16 * 1024 * 1024 * 1024;
 const BSD_AGENT_TIMEOUT: Duration = Duration::from_secs(180);
 
 fn step(label: &str) -> String {
@@ -172,6 +173,16 @@ fn start_bsd_sandbox(os: BuildOs, version: &str, cpus: u32, memory: u32) -> Resu
             // repository used by the bsdkrun workflows. The requested version
             // still selects the source ref and artifact label below.
             let mut command = Command::new(bsdkrun_binary());
+            let build_disk = std::env::current_dir()?.join(format!(".{}-build.img", name));
+            if !build_disk.exists() {
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .open(&build_disk)
+                    .with_context(|| format!("creating {}", build_disk.display()))?
+                    .set_len(BSD_BUILD_DISK_SIZE)
+                    .with_context(|| format!("sizing {}", build_disk.display()))?;
+            }
             command
                 .arg(os_name)
                 .arg("-d")
@@ -185,6 +196,8 @@ fn start_bsd_sandbox(os: BuildOs, version: &str, cpus: u32, memory: u32) -> Resu
                 .arg(BSD_DISK_SIZE)
                 .arg("--volume")
                 .arg(&name)
+                .arg("--attach-disk")
+                .arg(&build_disk)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit());
             if !(os == BuildOs::Netbsd && version == "current") {

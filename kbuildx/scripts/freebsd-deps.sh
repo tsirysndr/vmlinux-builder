@@ -1,5 +1,13 @@
 #!/bin/sh
 set -eu
+data_disk=/dev/vtbd1
+if ! mount | grep -q ' /root/kbuildx '; then
+    if ! fsck -n "$data_disk" >/dev/null 2>&1; then
+        newfs "$data_disk"
+    fi
+    mkdir -p /root/kbuildx
+    mount "$data_disk" /root/kbuildx
+fi
 
 marker=/var/db/kbuildx-root-grown
 if [ ! -e "$marker" ]; then
