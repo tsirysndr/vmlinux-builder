@@ -339,7 +339,7 @@ The sandbox is created with a persistent raw build disk (sized by `--disk-size`,
 
 The `/linux` checkout persists between invocations. A running sandbox is reused as-is when the requested CPU and memory match its current values; it is stopped and restarted only to apply resource changes, keeping the guest page cache warm between builds. Build dependencies are installed once and skipped on later runs. A sandbox created by an older kbuildx without a build disk is recreated automatically, and the kernel checkout is re-cloned onto the new disk.
 
-This mode requires a bsdkrun with `linux --attach-disk` support. The bsdkrun executable must be discoverable through `PATH` or `BSDKRUN_BIN`.
+This mode requires bsdkrun 0.9.0 or newer (`linux --attach-disk` support). The bsdkrun executable must be discoverable through `PATH` or `BSDKRUN_BIN`.
 
 ### BSD build machines
 

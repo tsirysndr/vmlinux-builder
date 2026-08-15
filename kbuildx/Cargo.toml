@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.104"
-bsdkrun-sdk = "0.1.2"
+bsdkrun-sdk = "0.2"
 clap = { version = "4", features = ["derive"] }
 crossterm = "0.28"
 fuzzy-matcher = "0.3"

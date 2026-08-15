@@ -402,36 +402,13 @@ fn create_sandbox(cpus: u32, memory: u32, disk_size: &str) -> Result<Sandbox> {
             .set_len(crate::commands::bsd::parse_disk_size(disk_size)?)
             .with_context(|| format!("sizing {}", build_disk.display()))?;
     }
-    let output = Command::new(crate::commands::bsd::bsdkrun_binary())
-        .arg("linux")
-        .arg("-d")
-        .arg("--name")
-        .arg(SANDBOX_ID)
-        .arg("--cpus")
-        .arg(cpus.to_string())
-        .arg("--mem")
-        .arg(memory.to_string())
-        .arg("--attach-disk")
-        .arg(&build_disk)
-        .arg("alpine:latest")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .output()
-        .context("creating the Linux build sandbox")?;
-    if !output.status.success() {
-        bail!(
-            "unable to create the Linux build sandbox (requires a bsdkrun with `linux --attach-disk` support)"
-        );
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let id = stdout
-        .lines()
-        .rev()
-        .find(|line| !line.trim().is_empty())
-        .map(|line| line.trim().to_string())
-        .ok_or_else(|| anyhow::anyhow!("bsdkrun did not return a sandbox id"))?;
-    let sandbox = Sandbox::get(&id)?;
+    let sandbox = Sandbox::linux("alpine:latest")
+        .name(SANDBOX_ID)
+        .cpus(cpus)
+        .mem(memory)
+        .attach_disk(build_disk.to_string_lossy())
+        .create()
+        .context("creating the Linux build sandbox (requires bsdkrun >= 0.9.0)")?;
     println!(
         "{} {} {}",
         step_label("[1/4 SANDBOX]"),
