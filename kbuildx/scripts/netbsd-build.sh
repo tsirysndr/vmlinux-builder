@@ -2,62 +2,17 @@
 set -eu
 
 version=$1; repo=$2; ref=$3; label=$4; requested_config=$5; bundle=$6
-export PATH=/usr/pkg/gcc15/bin:/usr/pkg/bin:/sbin:/usr/sbin:/bin:/usr/bin
-export LD_LIBRARY_PATH=/usr/pkg/gcc15/lib:/usr/pkg/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-mkdir -p /tmp/netbsd-bin
-for tool in as ld ar ranlib nm strip; do
-    target=$(command -v "x86_64--netbsd-$tool" 2>/dev/null || true)
-    if [ -z "$target" ] && [ -x "/usr/pkg/bin/$tool" ]; then
-        target="/usr/pkg/bin/$tool"
-    fi
-    if [ -z "$target" ]; then
-        # Exact or cross-prefixed names only: "*$tool" is too loose — git's
-        # "scalar" matches "*ar" and once ended up as HOST_AR.
-        target=$(find /usr/pkg -type f \( -name "$tool" -o -name "*-$tool" \) -perm -111 2>/dev/null | head -n 1 || true)
-    fi
-    # Only install tools that can actually run; a binary with a missing
-    # shared library (or a false find match) would poison the whole build.
-    if [ -n "$target" ] && "$target" --version >/dev/null 2>&1; then
-        ln -sf "$target" "/tmp/netbsd-bin/$tool"
-    fi
-done
+# A stock NetBSD image (base + comp sets) is self-hosting: build.sh
+# bootstraps its own tools with the native /usr/bin/cc. /usr/pkg/bin is on
+# PATH only for git.
+export PATH=/usr/pkg/bin:/sbin:/usr/sbin:/bin:/usr/bin
 
-export PATH=/tmp/netbsd-bin:$PATH
-
-# Repair /usr/lib/libgnuctf.so.2 only if a real library file exists somewhere;
-# a dangling symlink would leave /usr/bin/ld unrunnable while looking "fixed".
-rm -f /usr/lib/libgnuctf.so.2 2>/dev/null || true
-gnuctf=$(find /usr/lib /lib /usr/pkg -name 'libgnuctf.so*' -type f 2>/dev/null | head -n 1 || true)
-if [ -n "$gnuctf" ]; then
-    ln -sf "$gnuctf" /usr/lib/libgnuctf.so.2 || true
-fi
-
-# pkgsrc gcc15 is built --with-ld=/usr/bin/ld, so -B alone cannot redirect the
-# linker. If the base ld cannot even start (missing libgnuctf.so.2 on trimmed
-# images), route collect2 to pkgsrc's ld via -fuse-ld=bfd, which ignores the
-# configured DEFAULT_LINKER and searches the -B prefixes for "ld.bfd".
-cc_flags='-B/usr/pkg/bin/'
-if ! /usr/bin/ld --version >/dev/null 2>&1; then
-    echo "WARNING: /usr/bin/ld is not runnable:"
-    ldd /usr/bin/ld || true
-    if [ -e /tmp/netbsd-bin/ld ]; then
-        ln -sf "$(readlink /tmp/netbsd-bin/ld)" /tmp/netbsd-bin/ld.bfd
-        cc_flags='-B/usr/pkg/bin/ -B/tmp/netbsd-bin/ -fuse-ld=bfd'
-        echo "Using pkgsrc ld via -fuse-ld=bfd: $(readlink /tmp/netbsd-bin/ld)"
-    else
-        echo "ERROR: no usable linker found (base ld broken, no pkgsrc ld)" >&2
-        exit 1
-    fi
-fi
-
-export CC="gcc $cc_flags"
-export HOST_CC="gcc $cc_flags"
-
+# Fail fast with a clear message if the guest image lacks a working native
+# toolchain (e.g. built without the comp set).
 printf 'int main(void){return 0;}\n' > /tmp/cc-smoke.c
-if ! $CC -O /tmp/cc-smoke.c -o /tmp/cc-smoke; then
-    echo "ERROR: host compiler smoke test failed (CC=$CC)" >&2
+if ! cc -O /tmp/cc-smoke.c -o /tmp/cc-smoke; then
+    echo "ERROR: native toolchain broken; guest image is missing the comp set?" >&2
     ldd /usr/bin/ld || true
-    ls -l /usr/lib/libgnuctf* /usr/pkg/bin 2>/dev/null || true
     exit 1
 fi
 rm -f /tmp/cc-smoke.c /tmp/cc-smoke

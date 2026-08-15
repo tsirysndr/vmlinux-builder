@@ -75,11 +75,13 @@ mkdir -p /usr/pkg/etc/pkgin
 printf '%s\n' "$package_path" > /usr/pkg/etc/pkgin/repositories.conf
 
 ls -ld /usr /usr/pkg /usr/pkg/lib
-mkdir -p /usr/pkg/lib/perl5/5.42.0/TAP/Formatter /usr/pkg/bin /usr/pkg/sbin /usr/pkg/etc
+mkdir -p /usr/pkg/bin /usr/pkg/sbin /usr/pkg/etc
 
+# The stock image (base + comp sets) is self-hosting for build.sh; pkgsrc is
+# only needed for git (source fetch) and the TLS roots it pulls in.
 export ASSUME_ALWAYS_YES=yes
 pkgin update
-pkgin -y install git gcc15 git-base gmake binutils gmake bison flex perl mozilla-rootcerts-openssl \
+pkgin -y install git mozilla-rootcerts-openssl \
     || cat /var/db/pkgin/pkg_install-err.log
 if command -v mozilla-rootcerts >/dev/null 2>&1; then
     mozilla-rootcerts install
