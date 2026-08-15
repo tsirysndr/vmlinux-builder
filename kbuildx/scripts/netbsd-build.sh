@@ -6,6 +6,9 @@ export PATH=/usr/pkg/gcc15/bin:/usr/pkg/bin:/sbin:/usr/sbin:/bin:/usr/bin
 mkdir -p /tmp/netbsd-bin
 for tool in as ld ar ranlib nm strip; do
     target=$(command -v "x86_64--netbsd-$tool" 2>/dev/null || true)
+    if [ -z "$target" ] && [ -x "/usr/pkg/bin/$tool" ]; then
+        target="/usr/pkg/bin/$tool"
+    fi
     if [ -z "$target" ]; then
         target=$(find /usr/pkg -type f -name "*$tool" -perm -111 2>/dev/null | head -n 1 || true)
     fi
@@ -14,15 +17,44 @@ done
 
 export PATH=/tmp/netbsd-bin:$PATH
 export LD_LIBRARY_PATH=/usr/pkg/gcc15/lib:/usr/pkg/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
-gnuctf=$(find /usr/pkg -name 'libgnuctf.so.2' -type f 2>/dev/null | head -n 1 || true)
+
+# Repair /usr/lib/libgnuctf.so.2 only if a real library file exists somewhere;
+# a dangling symlink would leave /usr/bin/ld unrunnable while looking "fixed".
+rm -f /usr/lib/libgnuctf.so.2 2>/dev/null || true
+gnuctf=$(find /usr/lib /lib /usr/pkg -name 'libgnuctf.so*' -type f 2>/dev/null | head -n 1 || true)
 if [ -n "$gnuctf" ]; then
-    export LD_LIBRARY_PATH="$(dirname "$gnuctf"):$LD_LIBRARY_PATH"
+    ln -sf "$gnuctf" /usr/lib/libgnuctf.so.2 || true
 fi
 
-ln -s /usr/lib/libgnuctf.so.3 /usr/lib/libgnuctf.so.2 || echo "failed to create symlink for libgnuctf.so.2; continuing anyway"
+# pkgsrc gcc15 is built --with-ld=/usr/bin/ld, so -B alone cannot redirect the
+# linker. If the base ld cannot even start (missing libgnuctf.so.2 on trimmed
+# images), route collect2 to pkgsrc's ld via -fuse-ld=bfd, which ignores the
+# configured DEFAULT_LINKER and searches the -B prefixes for "ld.bfd".
+cc_flags='-B/usr/pkg/bin/'
+if ! /usr/bin/ld --version >/dev/null 2>&1; then
+    echo "WARNING: /usr/bin/ld is not runnable:"
+    ldd /usr/bin/ld || true
+    if [ -e /tmp/netbsd-bin/ld ]; then
+        ln -sf "$(readlink /tmp/netbsd-bin/ld)" /tmp/netbsd-bin/ld.bfd
+        cc_flags='-B/usr/pkg/bin/ -B/tmp/netbsd-bin/ -fuse-ld=bfd'
+        echo "Using pkgsrc ld via -fuse-ld=bfd: $(readlink /tmp/netbsd-bin/ld)"
+    else
+        echo "ERROR: no usable linker found (base ld broken, no pkgsrc ld)" >&2
+        exit 1
+    fi
+fi
 
-export CC='gcc -B/usr/pkg/bin/'
-export HOST_CC='gcc -B/usr/pkg/bin/'
+export CC="gcc $cc_flags"
+export HOST_CC="gcc $cc_flags"
+
+printf 'int main(void){return 0;}\n' > /tmp/cc-smoke.c
+if ! $CC -O /tmp/cc-smoke.c -o /tmp/cc-smoke; then
+    echo "ERROR: host compiler smoke test failed (CC=$CC)" >&2
+    ldd /usr/bin/ld || true
+    ls -l /usr/lib/libgnuctf* /usr/pkg/bin 2>/dev/null || true
+    exit 1
+fi
+rm -f /tmp/cc-smoke.c /tmp/cc-smoke
 work=/root/kbuildx
 src=$work/netbsd-src
 obj=$work/netbsd-obj
