@@ -394,7 +394,7 @@ Optional outputs include:
 - `uInitrd` and checksum on arm64
 - `modules-<kernelrelease>.tar.gz` and checksum
 
-Artifacts live in `./linux` during direct host builds. Sandbox builds keep their working files in `/linux` and copy the finished `vmlinux-<version>.<architecture>` plus its SHA-256 file into the host's `./linux` directory before returning successfully.
+Artifacts live in `./linux` during direct host builds. Sandbox builds keep their working files in `/linux` and copy every finished artifact — `vmlinux`, the boot `Image`, `uImage`, `initrd`, `uInitrd`, the modules archive, and their SHA-256 files, as applicable — into the host's `./linux` directory before returning successfully. The build ends with a summary of the total time consumed.
 
 BSD kernel-only builds export:
 

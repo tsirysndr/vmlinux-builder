@@ -90,29 +90,67 @@ impl Runtime {
         }
     }
 
-    fn export_vmlinux(&self, version_label: &str) -> Result<()> {
+    /// Copy every produced artifact (vmlinux, boot Image, uImage, initrd,
+    /// uInitrd, modules tarball, and their checksums) from the sandbox's
+    /// /linux to the host's ./linux. Host builds already produce them there.
+    fn export_artifacts(&self, version_label: &str) -> Result<()> {
         let Self::Sandbox(sandbox) = self else {
             return Ok(());
         };
-        let filename = format!("vmlinux-{version_label}.{}", artifact_arch());
+        let vmlinux = format!("vmlinux-{version_label}.{}", artifact_arch());
+        let binary = std::env::var_os("BSDKRUN_BIN").unwrap_or_else(|| "bsdkrun".into());
+        // `; true` keeps the exit code clean when optional patterns match
+        // nothing; only the mandatory vmlinux is checked afterwards.
+        let listing = Command::new(binary)
+            .args([
+                "exec",
+                sandbox.id(),
+                "sh",
+                "-c",
+                "cd /linux && ls -1 vmlinux-* Image-* uImage* uInitrd* \
+                 initrd.img-* modules-*.tar.gz* 2>/dev/null; true",
+            ])
+            .stdin(Stdio::null())
+            .stderr(Stdio::inherit())
+            .output()?;
+        let artifacts: Vec<String> = String::from_utf8_lossy(&listing.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|name| !name.is_empty() && !name.contains('/'))
+            .map(str::to_string)
+            .collect();
+        if !artifacts.iter().any(|name| name == &vmlinux) {
+            bail!("build finished but {vmlinux} was not found in the sandbox");
+        }
         let host_dir = std::env::current_dir()?.join("linux");
         std::fs::create_dir_all(&host_dir)?;
-        for suffix in ["", ".sha256"] {
-            let artifact = format!("{filename}{suffix}");
+        for artifact in &artifacts {
             export_sandbox_file(
                 sandbox,
                 &format!("/linux/{artifact}"),
-                &host_dir.join(&artifact),
+                &host_dir.join(artifact),
             )?;
+            println!(
+                "{} {} {}",
+                step_label("[EXPORT]"),
+                success("Copied"),
+                value(artifact)
+            );
         }
         println!(
             "{} {} {}",
             step_label("[EXPORT]"),
-            success("Copied vmlinux artifacts to host:"),
+            success(&format!("{} artifacts in", artifacts.len())),
             value(&host_dir.display().to_string())
         );
         Ok(())
     }
+}
+
+/// `Xm Ys` for the end-of-build summary.
+pub(crate) fn human_minutes(elapsed: std::time::Duration) -> String {
+    let secs = elapsed.as_secs();
+    format!("{}m {:02}s", secs / 60, secs % 60)
 }
 
 pub(crate) fn artifact_arch() -> &'static str {
@@ -255,6 +293,7 @@ pub fn build_kernel(args: BuildArgs) -> Result<()> {
     if args.os != BuildOs::Linux {
         return crate::commands::bsd::build_bsd(args);
     }
+    let started = std::time::Instant::now();
     if args.bundle {
         bail!("--bundle is available only with --os freebsd or --os netbsd");
     }
@@ -322,7 +361,15 @@ pub fn build_kernel(args: BuildArgs) -> Result<()> {
         success("Kernel checkout is ready")
     );
     start_compilation(&runtime, &args, &version_label)?;
-    runtime.export_vmlinux(&version_label)?;
+    runtime.export_artifacts(&version_label)?;
+    println!(
+        "{} {}",
+        step_label("[DONE]"),
+        success(&format!(
+            "🎉 Build succeeded in {} 🎉",
+            human_minutes(started.elapsed())
+        ))
+    );
 
     Ok(())
 }
@@ -896,7 +943,7 @@ fi
 mod tests {
     use std::path::Path;
 
-    use super::{kernel_git_ref, temporary_artifact_path};
+    use super::{human_minutes, kernel_git_ref, temporary_artifact_path};
 
     #[test]
     fn kernel_version_is_normalized_to_a_tag_ref() {
@@ -904,6 +951,14 @@ mod tests {
         assert_eq!(kernel_git_ref("v7.1.8"), "v7.1.8");
         assert_eq!(kernel_git_ref("6.6.y"), "linux-6.6.y");
         assert_eq!(kernel_git_ref("v6.6.y"), "linux-6.6.y");
+    }
+
+    #[test]
+    fn elapsed_time_reads_as_minutes_and_seconds() {
+        use std::time::Duration;
+        assert_eq!(human_minutes(Duration::from_secs(0)), "0m 00s");
+        assert_eq!(human_minutes(Duration::from_secs(59)), "0m 59s");
+        assert_eq!(human_minutes(Duration::from_secs(754)), "12m 34s");
     }
 
     #[test]

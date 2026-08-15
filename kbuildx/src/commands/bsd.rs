@@ -87,6 +87,7 @@ pub fn build_bsd(args: BuildArgs) -> Result<()> {
     if args.host {
         bail!("--host supports Linux only; BSD builds require bsdkrun");
     }
+    let started = Instant::now();
     if args.merge_config.is_some()
         || args.initrd
         || args.modules
@@ -145,6 +146,14 @@ pub fn build_bsd(args: BuildArgs) -> Result<()> {
         args.bundle,
     )?;
     export_bsd_artifacts(&runtime.sandbox, os_name, &label, args.bundle)?;
+    println!(
+        "{} {}",
+        step("[DONE]"),
+        success(&format!(
+            "🎉 Build succeeded in {} 🎉",
+            crate::commands::build::human_minutes(started.elapsed())
+        ))
+    );
     Ok(())
 }
 
