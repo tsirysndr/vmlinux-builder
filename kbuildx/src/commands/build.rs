@@ -652,7 +652,11 @@ if git -C "$kernel_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 else
     if [ -e "$kernel_dir" ]; then
         printf '%s\n' "$4"
-        rm -rf -- "$kernel_dir"
+        # Clear the contents rather than the directory: $kernel_dir is the
+        # build-disk mountpoint in sandbox builds (removing it fails with
+        # "Resource busy"), and a fresh ext4 holds a lost+found that would
+        # make git refuse to clone into a non-empty directory.
+        rm -rf -- "$kernel_dir"/* "$kernel_dir"/.[!.]* "$kernel_dir"/..?*
     fi
     printf '%s\n' "$5"
     git -c checkout.workers=1 clone --depth 1 --branch "$1" "$2" "$kernel_dir"
