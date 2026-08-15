@@ -311,9 +311,10 @@ pub fn build_kernel(args: BuildArgs) -> Result<()> {
         );
         Runtime::Host
     } else {
-        Runtime::Sandbox(start_sandbox(args.cpus, args.memory)?)
+        Runtime::Sandbox(start_sandbox(args.cpus, args.memory, &args.disk_size)?)
     };
     install_deps(&runtime)?;
+    prepare_build_disk(&runtime)?;
     sync_kernel(&runtime, repo, &git_ref)?;
     println!(
         "{} {}",
@@ -379,32 +380,136 @@ fn fetch_last_version(repo: &str) -> String {
     versions.last().unwrap_or(&"latest").to_string()
 }
 
-fn start_sandbox(cpus: u32, memory: u32) -> Result<Sandbox> {
-    const SANDBOX_ID: &str = "kbuildx_sandbox";
-    let sandbox = Sandbox::get(SANDBOX_ID);
+const SANDBOX_ID: &str = "kbuildx_sandbox";
 
-    if let Err(s) = sandbox {
-        eprintln!(
-            "{} {} {}",
-            step_label("[1/4 SANDBOX]"),
-            warning("Existing sandbox unavailable:"),
-            s
+/// The persistent raw image attached to the Linux sandbox as virtio-blk. The
+/// build runs on it (formatted ext4, mounted at /linux) instead of the
+/// virtio-fs rootfs, whose per-file host round-trips dominate kernel-build
+/// time on macOS.
+fn build_disk_path() -> Result<PathBuf> {
+    Ok(std::env::current_dir()?.join(format!(".{SANDBOX_ID}-build.img")))
+}
+
+fn create_sandbox(cpus: u32, memory: u32, disk_size: &str) -> Result<Sandbox> {
+    use anyhow::Context;
+    let build_disk = build_disk_path()?;
+    if !build_disk.exists() {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(&build_disk)
+            .with_context(|| format!("creating {}", build_disk.display()))?
+            .set_len(crate::commands::bsd::parse_disk_size(disk_size)?)
+            .with_context(|| format!("sizing {}", build_disk.display()))?;
+    }
+    let output = Command::new(crate::commands::bsd::bsdkrun_binary())
+        .arg("linux")
+        .arg("-d")
+        .arg("--name")
+        .arg(SANDBOX_ID)
+        .arg("--cpus")
+        .arg(cpus.to_string())
+        .arg("--mem")
+        .arg(memory.to_string())
+        .arg("--attach-disk")
+        .arg(&build_disk)
+        .arg("alpine:latest")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .output()
+        .context("creating the Linux build sandbox")?;
+    if !output.status.success() {
+        bail!(
+            "unable to create the Linux build sandbox (requires a bsdkrun with `linux --attach-disk` support)"
         );
-        let sandbox = Sandbox::linux("alpine:latest")
-            .name(SANDBOX_ID)
-            .cpus(cpus)
-            .mem(memory)
-            .create()?;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let id = stdout
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| line.trim().to_string())
+        .ok_or_else(|| anyhow::anyhow!("bsdkrun did not return a sandbox id"))?;
+    let sandbox = Sandbox::get(&id)?;
+    println!(
+        "{} {} {}",
+        step_label("[1/4 SANDBOX]"),
+        success("Created new sandbox:"),
+        success(&sandbox.id())
+    );
+    Ok(sandbox)
+}
+
+fn sandbox_info(name: &str) -> Result<Option<bsdkrun_sdk::SandboxInfo>> {
+    Ok(Sandbox::list(true)?
+        .into_iter()
+        .find(|info| info.name.as_deref() == Some(name) || info.id == name))
+}
+
+fn start_sandbox(cpus: u32, memory: u32, disk_size: &str) -> Result<Sandbox> {
+    let sandbox = match Sandbox::get(SANDBOX_ID) {
+        Ok(sandbox) => sandbox,
+        Err(s) => {
+            eprintln!(
+                "{} {} {}",
+                step_label("[1/4 SANDBOX]"),
+                warning("Existing sandbox unavailable:"),
+                s
+            );
+            return create_sandbox(cpus, memory, disk_size);
+        }
+    };
+
+    let info = sandbox_info(SANDBOX_ID)?;
+
+    // A sandbox created before build disks existed keeps compiling over
+    // virtio-fs. Its /linux checkout is only a cache, so recreate it around a
+    // block device instead. bsdkrun records attached disks in the machine's
+    // state dir as attached-disks.json.
+    let has_build_disk = info
+        .as_ref()
+        .map(|info| {
+            Path::new(&info.state_dir)
+                .join("attached-disks.json")
+                .exists()
+        })
+        .unwrap_or(false);
+    if !has_build_disk {
         println!(
-            "{} {} {}",
+            "{} {}",
             step_label("[1/4 SANDBOX]"),
-            success("Created new sandbox:"),
-            success(&sandbox.id())
+            warning(
+                "Sandbox has no build disk; recreating it with one (the kernel checkout will be re-cloned)."
+            )
+        );
+        sandbox.remove(true)?;
+        return create_sandbox(cpus, memory, disk_size);
+    }
+
+    // Only cycle the sandbox when the requested resources differ from what it
+    // already runs with — a restart drops the guest page cache and re-clones
+    // nothing, but costs boot time on every build.
+    let (running, resources_match) = info
+        .map(|info| {
+            (
+                info.running,
+                info.cpus == cpus && info.mem == u64::from(memory),
+            )
+        })
+        .unwrap_or((false, false));
+    if running && resources_match {
+        println!(
+            "{} {} {} ({} vCPU, {} MiB)",
+            step_label("[1/4 SANDBOX]"),
+            success("Reusing running sandbox:"),
+            value(&sandbox.id()),
+            cpus,
+            memory
         );
         return Ok(sandbox);
     }
 
-    let sandbox = sandbox.unwrap();
     println!(
         "{} {} {} ({} vCPU, {} MiB)",
         step_label("[1/4 SANDBOX]"),
@@ -413,7 +518,7 @@ fn start_sandbox(cpus: u32, memory: u32) -> Result<Sandbox> {
         cpus,
         memory
     );
-    if sandbox.is_running()? {
+    if running {
         println!(
             "{} {}",
             step_label("[1/4 SANDBOX]"),
@@ -421,7 +526,9 @@ fn start_sandbox(cpus: u32, memory: u32) -> Result<Sandbox> {
         );
         sandbox.stop()?;
     }
-    sandbox.update().cpus(cpus).mem(memory).apply()?;
+    if !resources_match {
+        sandbox.update().cpus(cpus).mem(memory).apply()?;
+    }
     sandbox.start()?;
 
     Ok(sandbox)
@@ -438,6 +545,13 @@ fn install_deps(runtime: &Runtime) -> Result<()> {
         &[
             "-c",
             r#"set -e
+# Skip the package-manager round trip entirely once this dependency set is
+# installed; bump the marker version whenever the lists below change.
+marker=/var/lib/kbuildx/deps-v2
+if [ -f "$marker" ]; then
+    echo "Dependencies already installed"
+    exit 0
+fi
 run_as_root=""
 if [ "$(id -u)" -ne 0 ]; then
     if command -v sudo >/dev/null 2>&1; then
@@ -452,7 +566,7 @@ if command -v apk >/dev/null 2>&1; then
     $run_as_root apk add --no-cache git build-base flex bison ncurses-dev \
         openssl-dev gcc bc elfutils-dev pahole curl tar gzip u-boot-tools \
         mkinitfs bash perl python3 rsync cpio xz zstd findutils diffutils \
-        linux-headers
+        linux-headers e2fsprogs
 elif command -v apt-get >/dev/null 2>&1; then
     $run_as_root apt-get update
     $run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -467,7 +581,9 @@ elif command -v dnf >/dev/null 2>&1; then
 else
     echo "No supported package manager found (apk, apt-get, or dnf)" >&2
     exit 1
-fi"#,
+fi
+$run_as_root mkdir -p "$(dirname "$marker")"
+$run_as_root touch "$marker""#,
         ],
         None,
         true,
@@ -480,6 +596,45 @@ fi"#,
         success(&exit_code.to_string())
     );
 
+    Ok(())
+}
+
+/// Format (first use) and mount the sandbox's virtio-blk build disk at /linux,
+/// so checkout and compilation run on ext4 with a guest page cache instead of
+/// virtio-fs. Host builds have no attached disk and skip this entirely.
+fn prepare_build_disk(runtime: &Runtime) -> Result<()> {
+    let Runtime::Sandbox(_) = runtime else {
+        return Ok(());
+    };
+    runtime.run(
+        "sh",
+        &[
+            "-c",
+            r#"set -e
+disk=/dev/vda
+if [ ! -b "$disk" ]; then
+    echo "warning: no build disk attached; building on the virtio-fs root (slow)" >&2
+    exit 0
+fi
+mkdir -p /linux
+if mountpoint -q /linux; then
+    exit 0
+fi
+if [ -z "$(blkid "$disk" 2>/dev/null)" ]; then
+    echo "Formatting build disk $disk as ext4"
+    mkfs.ext4 -q -L kbuildx "$disk"
+fi
+mount "$disk" /linux
+echo "Build disk mounted at /linux""#,
+        ],
+        None,
+        true,
+    )?;
+    println!(
+        "{} {}",
+        step_label("[2/4 DEPS]"),
+        success("Build disk is ready")
+    );
     Ok(())
 }
 

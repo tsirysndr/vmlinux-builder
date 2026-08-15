@@ -37,7 +37,7 @@ fn value(message: &str) -> String {
     message.color(Rgb(175, 135, 255)).to_string()
 }
 
-fn bsdkrun_binary() -> std::ffi::OsString {
+pub(crate) fn bsdkrun_binary() -> std::ffi::OsString {
     std::env::var_os("BSDKRUN_BIN").unwrap_or_else(|| "bsdkrun".into())
 }
 
@@ -243,7 +243,7 @@ fn start_bsd_sandbox(
     Ok(BsdRuntime { sandbox })
 }
 
-fn parse_disk_size(value: &str) -> Result<u64> {
+pub(crate) fn parse_disk_size(value: &str) -> Result<u64> {
     let value = value.trim();
     let upper = value.to_ascii_uppercase();
     let (number, multiplier) = match upper.strip_suffix('G') {

@@ -335,9 +335,11 @@ When direct host mode is not selected, `kbuildx` creates or reuses an Alpine san
 kbuildx_sandbox
 ```
 
-The sandbox persists its `/linux` checkout between invocations. Requested CPU and memory values are applied before it starts. Existing sandboxes are restarted when necessary for resource changes.
+The sandbox is created with a persistent raw build disk (sized by `--disk-size`, default 16G) stored as `.kbuildx_sandbox-build.img` in the working directory and attached as virtio-blk. On first use the disk is formatted ext4 and mounted at `/linux`, so the kernel checkout and every object file live on a real block device with a guest page cache instead of the virtio-fs rootfs — on macOS this is the difference between an I/O-bound build and a CPU-bound one.
 
-The bsdkrun executable must be discoverable through `PATH` or `BSDKRUN_BIN`.
+The `/linux` checkout persists between invocations. A running sandbox is reused as-is when the requested CPU and memory match its current values; it is stopped and restarted only to apply resource changes, keeping the guest page cache warm between builds. Build dependencies are installed once and skipped on later runs. A sandbox created by an older kbuildx without a build disk is recreated automatically, and the kernel checkout is re-cloned onto the new disk.
+
+This mode requires a bsdkrun with `linux --attach-disk` support. The bsdkrun executable must be discoverable through `PATH` or `BSDKRUN_BIN`.
 
 ### BSD build machines
 

@@ -120,7 +120,7 @@ pub struct BuildArgs {
     #[arg(
         long = "disk-size",
         default_value = "16G",
-        help = "Size of the persistent BSD build disk."
+        help = "Size of the persistent build disk attached to the sandbox."
     )]
     pub disk_size: String,
     #[arg(
