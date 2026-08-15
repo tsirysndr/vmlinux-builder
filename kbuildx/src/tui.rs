@@ -1202,8 +1202,17 @@ mod tests {
             .stderr(stderr)
             .status()
             .unwrap();
+        // Drain the master like the app's reader thread does: once the child's
+        // slave side closes, Linux reports EIO where macOS reports EOF — both
+        // just mean the output is finished.
         let mut captured = String::new();
-        output.read_to_string(&mut captured).unwrap();
+        let mut buffer = [0_u8; 4096];
+        loop {
+            match output.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(length) => captured.push_str(&String::from_utf8_lossy(&buffer[..length])),
+            }
+        }
 
         assert!(status.success(), "child failed; captured: {captured:?}");
         assert!(captured.contains("stdout"), "captured: {captured:?}");
