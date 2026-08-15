@@ -32,7 +32,17 @@
           commonArgs = {
             pname = "kbuildx";
             version = "0.1.0";
-            src = craneLib.cleanCargoSource ./kbuildx;
+            # The default cargo filter keeps only .rs/Cargo.* files; the crate
+            # also embeds test fixtures and the BSD build scripts via
+            # include_str!, so keep those too.
+            src = pkgs.lib.cleanSourceWith {
+              src = ./kbuildx;
+              filter = path: type:
+                (craneLib.filterCargoSources path type)
+                || (pkgs.lib.hasInfix "/src/fixtures/" path)
+                || (pkgs.lib.hasSuffix ".sh" path);
+              name = "source";
+            };
             strictDeps = true;
             nativeBuildInputs = [ pkgs.makeWrapper ];
           };
