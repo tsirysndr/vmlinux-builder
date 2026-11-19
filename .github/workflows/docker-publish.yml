@@ -40,7 +40,7 @@ jobs:
           deno-version: v2.x
 
       - name: Build and Publish image to Docker Hub
-        uses: fluentci-io/setup-fluentci@v5
+        uses: fluentci-io/setup-fluentci@next
         with:
           wasm: true
           plugin: buildx
