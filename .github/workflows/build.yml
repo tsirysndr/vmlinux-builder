@@ -89,9 +89,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
+      - uses: fluentci-io/setup-fluentci@next
+      - name: Set up PureScript and Spago
+        shell: bash
+        run: >-
+          fluentci run setup-purescript setup --version 0.15.16
+          --node-version 24.13.1 --spago-version 1.0.5
+          | node "$GITHUB_WORKSPACE/.fluentci/github-env.mjs"
+      - name: Build vmlinux-builder
+        working-directory: purescript
+        run: spago build
       - name: Set TAG and VERSION
         shell: bash
         env:
@@ -172,10 +179,12 @@ jobs:
             EXTRA_ARGS+=($UIMAGE_ARGS)
           fi
 
+          # The PureScript port takes the same arguments build.ts did.
+          BUILDER="node $GITHUB_WORKSPACE/purescript/bin/vmlinux-builder.js"
           if [[ -n "$REPO" ]]; then
-            ./build.ts --repo "$REPO" --branch "$BRANCH" --version "$VERSION" "${EXTRA_ARGS[@]}"
+            $BUILDER --repo "$REPO" --branch "$BRANCH" --version "$VERSION" "${EXTRA_ARGS[@]}"
           else
-            ./build.ts "$TAG" "${EXTRA_ARGS[@]}"
+            $BUILDER "$TAG" "${EXTRA_ARGS[@]}"
           fi
           sha256sum linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }} > linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}.sha256
 

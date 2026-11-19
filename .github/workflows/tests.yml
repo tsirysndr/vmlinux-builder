@@ -18,3 +18,18 @@ jobs:
           deno-version: v2.x
       - name: Run tests
         run: deno test -A
+
+  purescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: fluentci-io/setup-fluentci@next
+      - name: Set up PureScript and Spago
+        shell: bash
+        run: >-
+          fluentci run setup-purescript setup --version 0.15.16
+          --node-version 24.13.1 --spago-version 1.0.5
+          | node "$GITHUB_WORKSPACE/.fluentci/github-env.mjs"
+      - name: Build and test
+        working-directory: purescript
+        run: spago test
