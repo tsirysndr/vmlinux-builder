@@ -1,0 +1,23 @@
+{
+  "name": "@tsiry/vmlinux-builder-purescript",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PureScript port of vmlinux-builder: build a Linux vmlinux (with OpenZFS built in) for microVMs, and a typed kernel .config library",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "vmlinux-builder": "bin/vmlinux-builder.js"
+  },
+  "scripts": {
+    "build": "spago build",
+    "test": "spago test",
+    "start": "spago build && node bin/vmlinux-builder.js"
+  },
+  "engines": {
+    "node": ">=23.6"
+  },
+  "devDependencies": {
+    "purescript": "^0.15.16",
+    "spago": "^1.0.5"
+  }
+}

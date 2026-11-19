@@ -1,0 +1,6 @@
+node_modules/
+output/
+output-es/
+.spago/
+.psci_modules/
+.purs-repl

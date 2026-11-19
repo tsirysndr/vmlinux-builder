@@ -98,6 +98,19 @@ vmlinux built successfully!
 You can find the vmlinux file in /path/to/linux-stable/vmlinux-6.16.x86_64
 ```
 
+## 🟣 PureScript port
+
+[`purescript/`](purescript/) is a port of `build.ts` and `config.ts` with the
+same flags and the same bundled config (imported from `default-config.ts`, not
+copied). It is what the workflows run:
+
+```sh
+cd purescript && spago build
+node bin/vmlinux-builder.js 6.17.7 --no-zfs
+```
+
+See [`purescript/README.md`](purescript/README.md) for the config library.
+
 ## 📦 GitHub Actions
 
 This repo includes a GitHub Actions workflow (`.github/workflows/ci.yml`) that:
