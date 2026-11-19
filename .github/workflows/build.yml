@@ -51,6 +51,11 @@ on:
         required: false
         default: false
         type: boolean
+      zfs:
+        description: "Build OpenZFS into the kernel (CONFIG_ZFS=y). The default for upstream builds; board builds (repo/defconfig) only get it when this is on."
+        required: false
+        default: true
+        type: boolean
       uimage_args:
         description: "mkimage/uImage flags passed to build.ts on arm64 (empty = skip uImage). Defaults reproduce the previous hardcoded values; override any --uimage-* flag here."
         required: false
@@ -98,6 +103,7 @@ jobs:
           INPUT_DEFCONFIG: ${{ github.event.inputs.defconfig }}
           INPUT_INITRD: ${{ github.event.inputs.initrd }}
           INPUT_MODULES: ${{ github.event.inputs.modules }}
+          INPUT_ZFS: ${{ github.event.inputs.zfs }}
           INPUT_UIMAGE_ARGS: ${{ github.event.inputs.uimage_args }}
         run: |
           REPO="${INPUT_REPO}"
@@ -108,6 +114,7 @@ jobs:
           echo "DEFCONFIG=${INPUT_DEFCONFIG}" >> "$GITHUB_ENV"
           echo "GEN_INITRD=${INPUT_INITRD}" >> "$GITHUB_ENV"
           echo "GEN_MODULES=${INPUT_MODULES}" >> "$GITHUB_ENV"
+          echo "WITH_ZFS=${INPUT_ZFS}" >> "$GITHUB_ENV"
           echo "UIMAGE_ARGS=${INPUT_UIMAGE_ARGS}" >> "$GITHUB_ENV"
 
           if [[ -n "$REPO" ]]; then
@@ -153,6 +160,12 @@ jobs:
           fi
           if [[ "$GEN_MODULES" == "true" ]]; then
             EXTRA_ARGS+=(--modules)
+          fi
+          # Empty (push/PR) keeps build.ts's default: on for upstream builds.
+          if [[ "$WITH_ZFS" == "false" ]]; then
+            EXTRA_ARGS+=(--no-zfs)
+          elif [[ "$WITH_ZFS" == "true" ]]; then
+            EXTRA_ARGS+=(--zfs)
           fi
           # uImage generation is arm64-only; word-split the flag string.
           if [[ "$CPU_ARCH" == "aarch64" && -n "$UIMAGE_ARGS" ]]; then

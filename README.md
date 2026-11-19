@@ -14,6 +14,7 @@
 - Enhanced kernel configuration handling with customizable options
 - Uses a custom `.config` for reproducible builds
 - Outputs a ready-to-use `vmlinux-X.Y-[arch]` file
+- Builds **OpenZFS into the kernel** (`CONFIG_ZFS=y`, pinned to one OpenZFS release) so a guest can import and create pools with nothing but `zpool` in its image
 - Written in TypeScript with Deno for better type safety and cross-platform compatibility
 - Colored output using Chalk for improved readability
 - Easily integrated into CI pipelines (e.g., GitHub Actions)
@@ -26,8 +27,10 @@ Ensure you have the following dependencies installed:
 
 ```bash
 sudo apt-get install -y git build-essential flex bison libncurses5-dev \
-libssl-dev gcc bc libelf-dev pahole
+libssl-dev gcc bc libelf-dev pahole autoconf automake libtool gawk
 ```
+
+The last four are for OpenZFS's `autogen.sh`; skip them if you build with `--no-zfs`.
 
 ### Deno Runtime
 
@@ -67,6 +70,25 @@ The tool provides enhanced kernel configuration handling with:
 - Various netfilter options enabled
 - Customizable configuration through environment variables
 - Reproducible builds with consistent config options
+
+### OpenZFS
+
+Every upstream build carries OpenZFS in the kernel. Before `make vmlinux`, the
+tool clones the pinned OpenZFS release (`zfs-2.4.4`, which supports kernels up
+to 7.2), configures it kernel-only (`--with-config=kernel --enable-linux-builtin`),
+runs its `copy-builtin` into the tree and sets `CONFIG_ZFS=y`. The result is a
+kernel where `zpool`/`zfs` from any distribution package work without a module:
+nothing to load, nothing to match against a kernel version.
+
+- `--no-zfs` — leave it out.
+- `--zfs-version <tag>` — another OpenZFS tag (bump it together with the kernel:
+  each OpenZFS release names the newest kernel it supports).
+- `--zfs-repo <url>` — another OpenZFS repository.
+- Board builds (`--repo`, `--defconfig`) are left alone by default; pass `--zfs`
+  to opt in.
+
+`CONFIG_ZFS` depends on `BLOCK` and `EFI_PARTITION`; the build fails rather than
+silently dropping the symbol if a merged config has turned those off.
 
 ### Example output
 

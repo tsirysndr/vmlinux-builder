@@ -2,6 +2,15 @@
 import _ from "@es-toolkit/es-toolkit/compat";
 import chalk from "chalk";
 import cfg from "./default-config.ts";
+import {
+  configHasZfs,
+  configWithModules,
+  configWithZfs,
+  DEFAULT_ZFS_REPO,
+  DEFAULT_ZFS_VERSION,
+  zfsConfigureArgs,
+  zfsEnabled,
+} from "./zfs.ts";
 
 export * from "./config.ts";
 
@@ -64,6 +73,97 @@ async function capture(cmd: string[]): Promise<string> {
   return new TextDecoder().decode(stdout).trim();
 }
 
+/// Copy OpenZFS into the kernel tree at `kernelDir` (cwd) and switch it on.
+///
+/// `copy-builtin` is OpenZFS's own script for this: it copies `module/` to
+/// `fs/zfs`, `include/` to `include/zfs`, and edits `fs/Kconfig` and
+/// `fs/Makefile`. Those two edits are plain appends with no guard, so a
+/// reused tree would accumulate one `source "fs/zfs/Kconfig"` per build;
+/// both files are restored from git first. The ZFS tree lives beside the
+/// kernel tree (`../zfs`) and is reused across builds like `linux-stable`.
+async function buildInZfs(
+  kernelDir: string,
+  repo: string,
+  version: string
+): Promise<void> {
+  console.log(chalk.magenta(`Building OpenZFS ${chalk.cyan(version)} into the kernel...`));
+
+  // autogen needs the autotools; `--with-config=kernel` needs nothing else.
+  const hasAptGet = await runQuiet(["which", "apt-get"]);
+  const hasSudo = await runQuiet(["which", "sudo"]);
+  if (hasAptGet) {
+    try {
+      await run([
+        ..._.compact([hasSudo ? "sudo" : null]),
+        "apt-get",
+        "install",
+        "-y",
+        "autoconf",
+        "automake",
+        "libtool",
+        "gawk",
+      ]);
+    } catch {
+      // Ignore; autogen below fails with a clearer message if they are missing.
+    }
+  }
+
+  const zfsDir = `${kernelDir}/../zfs`;
+  if (!(await fileExists(zfsDir))) {
+    await run(["git", "clone", "--depth=1", "--branch", version, repo, zfsDir]);
+  } else {
+    try {
+      await run(["git", "-C", zfsDir, "fetch", "--depth=1", "origin", version]);
+    } catch {
+      await run(["git", "-C", zfsDir, "fetch", "origin", version]);
+    }
+    await run(["git", "-C", zfsDir, "checkout", "-f", "FETCH_HEAD"]);
+    // A tree configured for another kernel keeps stale probes around.
+    await runQuiet(["make", "-C", zfsDir, "distclean"]);
+  }
+
+  // The configure probes are external-module builds, which Kbuild refuses
+  // on a module-less config: turn modules on for the probe only.
+  const saved = await Deno.readTextFile(".config");
+  const probeConfig = configWithModules(saved);
+  if (probeConfig !== saved) {
+    await Deno.writeTextFile(".config", probeConfig);
+    await run(["make", "olddefconfig"]);
+    await run(["make", "modules_prepare"]);
+  }
+
+  Deno.chdir(zfsDir);
+  await run(["sh", "autogen.sh"]);
+  await run(["./configure", ...zfsConfigureArgs(kernelDir)]);
+  // Pristine fs/Kconfig + fs/Makefile, so copy-builtin's appends land once.
+  await run(["git", "-C", kernelDir, "checkout", "-f", "--", "fs/Kconfig", "fs/Makefile"]);
+  await run(["./copy-builtin", kernelDir]);
+  Deno.chdir(kernelDir);
+
+  // copy-builtin hooks fs/Kconfig by inserting before the ext2 entry and
+  // says nothing if that anchor is gone; make sure the hook is there.
+  const fsKconfig = await Deno.readTextFile("fs/Kconfig");
+  if (!fsKconfig.includes('source "fs/zfs/Kconfig"')) {
+    await Deno.writeTextFile("fs/Kconfig", `${fsKconfig}\nsource "fs/zfs/Kconfig"\n`);
+  }
+
+  // Back to the real config (modules as they were), now with ZFS on.
+  await Deno.writeTextFile(".config", configWithZfs(saved));
+  await run(["make", "olddefconfig"]);
+  const after = await Deno.readTextFile(".config");
+  if (!configHasZfs(after)) {
+    console.log(
+      chalk.red(
+        "CONFIG_ZFS=y did not survive olddefconfig: a dependency (BLOCK, EFI_PARTITION) is off in this config."
+      )
+    );
+    Deno.exit(1);
+  }
+  // Kconfig changed, so the prepared headers are regenerated before the build.
+  await run(["make", "prepare"]);
+  console.log(chalk.green("OpenZFS sources in tree, CONFIG_ZFS=y."));
+}
+
 const rawArgs = Deno.args;
 
 // Parse optional flags:
@@ -94,6 +194,11 @@ const rawArgs = Deno.args;
 //     --uimage-load <addr>  mkimage -a load address (default: 0x41000000)
 //     --uimage-entry <addr> mkimage -e entry point  (default: 0x41000000)
 //     --uimage-name <name>  mkimage -n image name   (default: "Linux <kernelrelease>")
+//   --zfs / --no-zfs      build OpenZFS into the kernel (CONFIG_ZFS=y). On by
+//                         default for upstream linux-stable builds; off for
+//                         --repo / --defconfig board builds unless --zfs.
+//   --zfs-version <tag>   OpenZFS git tag to build in (default: zfs-2.4.4).
+//   --zfs-repo <url>      OpenZFS git repository (default: openzfs/zfs).
 // Anything not matching a flag is treated as the positional kernel version.
 let repoInput: string | undefined;
 let branchInput: string | undefined;
@@ -110,6 +215,9 @@ let uimageComp = "none";
 let uimageLoad = "0x41000000";
 let uimageEntry = "0x41000000";
 let uimageName: string | undefined;
+let zfsFlag: boolean | undefined;
+let zfsVersion = DEFAULT_ZFS_VERSION;
+let zfsRepo = DEFAULT_ZFS_REPO;
 const positional: string[] = [];
 
 for (let i = 0; i < rawArgs.length; i++) {
@@ -167,6 +275,14 @@ for (let i = 0; i < rawArgs.length; i++) {
     uimageEntry = takeValue("--uimage-entry");
   } else if (arg === "--uimage-name" || arg.startsWith("--uimage-name=")) {
     uimageName = takeValue("--uimage-name");
+  } else if (arg === "--zfs") {
+    zfsFlag = true;
+  } else if (arg === "--no-zfs") {
+    zfsFlag = false;
+  } else if (arg === "--zfs-version" || arg.startsWith("--zfs-version=")) {
+    zfsVersion = takeValue("--zfs-version");
+  } else if (arg === "--zfs-repo" || arg.startsWith("--zfs-repo=")) {
+    zfsRepo = takeValue("--zfs-repo");
   } else {
     positional.push(arg);
   }
@@ -256,6 +372,17 @@ if (mergeConfigInput) {
       `Merge config detected: ${chalk.cyan(
         mergeConfigInput
       )} — it will be merged with the default config (provided config overrides on conflicts).`
+    )
+  );
+}
+
+const withZfs = zfsEnabled(zfsFlag, {
+  board: Boolean(repoInput || defconfigInput),
+});
+if (withZfs) {
+  console.log(
+    chalk.magenta(
+      `OpenZFS ${chalk.cyan(zfsVersion)} will be built into the kernel (CONFIG_ZFS=y); pass --no-zfs to skip.`
     )
   );
 }
@@ -411,6 +538,12 @@ if (defconfigInput) {
 await run(["make", "prepare"]);
 
 const nproc = await getNproc();
+
+// OpenZFS into the tree. Its configure needs a prepared kernel (it compiles
+// probes against the headers), which is why this follows `make prepare`.
+if (withZfs) {
+  await buildInZfs(Deno.cwd(), zfsRepo, zfsVersion);
+}
 const makeProcess = new Deno.Command("make", {
   args: ["vmlinux", `-j${nproc}`],
   stdin: "piped",

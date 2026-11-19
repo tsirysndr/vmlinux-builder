@@ -24,6 +24,10 @@ RUN apt-get update && apt-get install -y \
   bc \
   libelf-dev \
   pahole \
+  autoconf \
+  automake \
+  libtool \
+  gawk \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/vmlinux-builder /usr/local/bin/vmlinux-builder
