@@ -9,10 +9,113 @@
 // what it writes — kept apart from build.ts so they can be tested without
 // cloning a kernel.
 
-/// The OpenZFS release copied into the tree. Bump it together with the kernel
-/// versions this builds: each OpenZFS release names the newest kernel it
-/// supports (2.4.4 reaches 7.2), and a kernel past that fails to compile.
-export const DEFAULT_ZFS_VERSION = "zfs-2.4.4";
+/// A kernel line, `7.3` of `7.3.5`: what OpenZFS states its support against.
+export interface KernelLine {
+  major: number;
+  minor: number;
+}
+
+/// What an OpenZFS tree says about the kernels it builds against, from its
+/// `META` file (`Linux-Maximum: 7.3`, `Linux-Minimum: 4.18`).
+export interface ZfsMeta {
+  version: string | undefined;
+  linuxMinimum: KernelLine | undefined;
+  linuxMaximum: KernelLine | undefined;
+}
+
+/// `7.3`, `7.3.5` or `7.3.y` as a kernel line; `undefined` for anything else.
+export function kernelLine(version: string): KernelLine | undefined {
+  const m = version.trim().replace(/^v/, "").match(/^(\d+)\.(\d+)(?:\.(?:y|\d+))?(?:-.*)?$/);
+  return m ? { major: Number(m[1]), minor: Number(m[2]) } : undefined;
+}
+
+export function compareKernelLines(a: KernelLine, b: KernelLine): number {
+  return a.major !== b.major ? a.major - b.major : a.minor - b.minor;
+}
+
+/// Parse an OpenZFS `META` file.
+export function parseZfsMeta(text: string): ZfsMeta {
+  const field = (name: string) =>
+    text.split("\n").find((l) => l.startsWith(name + ":"))?.slice(name.length + 1).trim();
+  const line = (v: string | undefined) => (v === undefined ? undefined : kernelLine(v));
+  return {
+    version: field("Version"),
+    linuxMinimum: line(field("Linux-Minimum")),
+    linuxMaximum: line(field("Linux-Maximum")),
+  };
+}
+
+/// Whether a tree with this META builds against the kernel. OpenZFS's
+/// configure enforces exactly these two bounds.
+export function zfsSupports(meta: ZfsMeta, kernel: KernelLine): boolean {
+  const aboveMin = meta.linuxMinimum === undefined || compareKernelLines(kernel, meta.linuxMinimum) >= 0;
+  const belowMax = meta.linuxMaximum === undefined || compareKernelLines(kernel, meta.linuxMaximum) <= 0;
+  return aboveMin && belowMax;
+}
+
+/// A full git commit id, fetched by hash rather than cloned by branch.
+export function isCommit(ref: string): boolean {
+  return /^[0-9a-f]{40}$/.test(ref);
+}
+
+/// The branch tried when no row of the matrix covers the kernel: OpenZFS
+/// lands support for a new kernel on master first and backports it later.
+export const ZFS_DEVELOPMENT_BRANCH = "master";
+
+/// One row of the compatibility matrix: an OpenZFS ref and the kernel lines
+/// it builds against, as its own META states them.
+export interface ZfsCompatibility {
+  /// Git tag, or a commit for a development snapshot.
+  ref: string;
+  /// OpenZFS's own version string, for the log.
+  version: string;
+  linuxMinimum: KernelLine;
+  linuxMaximum: KernelLine;
+  /// A snapshot of master rather than a release.
+  development: boolean;
+}
+
+/// The OpenZFS compatibility matrix, newest OpenZFS first. Each row's bounds
+/// are what that tree's META says (`Linux-Maximum`/`Linux-Minimum`), which
+/// configure enforces to the letter. Add a row when a release ships with a
+/// new `Linux-Maximum`; a development row can go once a release covers its
+/// kernel. The checked-out tree's META is verified against the kernel after
+/// checkout regardless, so a wrong row fails at once with both numbers.
+export const ZFS_COMPATIBILITY: ReadonlyArray<ZfsCompatibility> = [
+  {
+    // openzfs/zfs master of 2026-11-19 ("CI: Temporarily ignore Lustre build
+    // result"): Linux 7.3 support is on master only; the backport to 2.4.5
+    // (openzfs/zfs#19838) is still open.
+    ref: "d1a5b599297754df52dc2a28ca984a012d91978d",
+    version: "2.4.99",
+    linuxMinimum: { major: 4, minor: 18 },
+    linuxMaximum: { major: 7, minor: 3 },
+    development: true,
+  },
+  {
+    ref: "zfs-2.4.4",
+    version: "2.4.4",
+    linuxMinimum: { major: 4, minor: 18 },
+    linuxMaximum: { major: 7, minor: 2 },
+    development: false,
+  },
+  {
+    ref: "zfs-2.3.9",
+    version: "2.3.9",
+    linuxMinimum: { major: 4, minor: 18 },
+    linuxMaximum: { major: 7, minor: 2 },
+    development: false,
+  },
+];
+
+/// The row to build into a kernel: a release that covers it, the newest
+/// first; a development snapshot only when no release does. `undefined`
+/// when no row covers the kernel line.
+export function zfsForKernel(kernel: KernelLine): ZfsCompatibility | undefined {
+  const covers = (row: ZfsCompatibility) =>
+    compareKernelLines(kernel, row.linuxMinimum) >= 0 && compareKernelLines(kernel, row.linuxMaximum) <= 0;
+  return ZFS_COMPATIBILITY.find((r) => !r.development && covers(r)) ?? ZFS_COMPATIBILITY.find(covers);
+}
 
 export const DEFAULT_ZFS_REPO = "https://github.com/openzfs/zfs.git";
 

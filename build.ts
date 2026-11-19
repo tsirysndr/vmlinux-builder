@@ -7,9 +7,14 @@ import {
   configWithModules,
   configWithZfs,
   DEFAULT_ZFS_REPO,
-  DEFAULT_ZFS_VERSION,
+  isCommit,
+  kernelLine,
+  parseZfsMeta,
+  ZFS_DEVELOPMENT_BRANCH,
   zfsConfigureArgs,
   zfsEnabled,
+  zfsForKernel,
+  zfsSupports,
 } from "./zfs.ts";
 
 export * from "./config.ts";
@@ -73,6 +78,30 @@ async function capture(cmd: string[]): Promise<string> {
   return new TextDecoder().decode(stdout).trim();
 }
 
+/// Put `ref` of the OpenZFS repository at `zfsDir`: a tag or branch is
+/// cloned shallowly, a commit is fetched by hash; an existing tree is
+/// re-fetched and reset, so the ZFS tree is reused across builds like
+/// `linux-stable`.
+async function checkoutZfs(zfsDir: string, repo: string, ref: string): Promise<void> {
+  if (!(await fileExists(zfsDir))) {
+    if (isCommit(ref)) {
+      await run(["git", "init", "-q", zfsDir]);
+      await run(["git", "-C", zfsDir, "remote", "add", "origin", repo]);
+    } else {
+      await run(["git", "clone", "--depth=1", "--branch", ref, repo, zfsDir]);
+      return;
+    }
+  }
+  try {
+    await run(["git", "-C", zfsDir, "fetch", "--depth=1", "origin", ref]);
+  } catch {
+    await run(["git", "-C", zfsDir, "fetch", "origin", ref]);
+  }
+  await run(["git", "-C", zfsDir, "checkout", "-f", "FETCH_HEAD"]);
+  // A tree configured for another kernel keeps stale probes around.
+  await runQuiet(["make", "-C", zfsDir, "distclean"]);
+}
+
 /// Copy OpenZFS into the kernel tree at `kernelDir` (cwd) and switch it on.
 ///
 /// `copy-builtin` is OpenZFS's own script for this: it copies `module/` to
@@ -84,9 +113,9 @@ async function capture(cmd: string[]): Promise<string> {
 async function buildInZfs(
   kernelDir: string,
   repo: string,
-  version: string
+  requested: string | undefined
 ): Promise<void> {
-  console.log(chalk.magenta(`Building OpenZFS ${chalk.cyan(version)} into the kernel...`));
+  console.log(chalk.magenta("Building OpenZFS into the kernel..."));
 
   // autogen needs the autotools; `--with-config=kernel` needs nothing else.
   const hasAptGet = await runQuiet(["which", "apt-get"]);
@@ -108,19 +137,66 @@ async function buildInZfs(
     }
   }
 
+  // The kernel this tree is, from the tree itself: right for a `.y` branch
+  // and for a custom repository alike.
+  const kernel = kernelLine(await capture(["make", "-s", "-C", kernelDir, "kernelversion"]));
   const zfsDir = `${kernelDir}/../zfs`;
-  if (!(await fileExists(zfsDir))) {
-    await run(["git", "clone", "--depth=1", "--branch", version, repo, zfsDir]);
+
+  // Which OpenZFS: what was asked for, else the matrix's row for this kernel
+  // line, else — a kernel newer than every row — master, where support for
+  // a new kernel lands first. Whatever is checked out is verified against
+  // the kernel through its own META, the two bounds configure enforces, so
+  // a wrong row or request fails here with both numbers instead of inside
+  // configure after the clone.
+  const show = (k: { major: number; minor: number } | undefined) => (k ? `${k.major}.${k.minor}` : "?");
+  let version: string;
+  let probing = false;
+  if (requested !== undefined) {
+    version = requested;
+  } else if (kernel === undefined) {
+    console.log(chalk.red("Could not read the kernel version from the tree (make kernelversion); pass --zfs-version <ref>."));
+    Deno.exit(1);
   } else {
-    try {
-      await run(["git", "-C", zfsDir, "fetch", "--depth=1", "origin", version]);
-    } catch {
-      await run(["git", "-C", zfsDir, "fetch", "origin", version]);
+    const row = zfsForKernel(kernel);
+    if (row) {
+      version = row.ref;
+      console.log(
+        chalk.magenta(
+          `Compatibility matrix: OpenZFS ${row.version} (${row.ref}${row.development ? ", development snapshot" : ""}) for Linux ${show(kernel)}.`
+        )
+      );
+    } else {
+      version = ZFS_DEVELOPMENT_BRANCH;
+      probing = true;
+      console.log(
+        chalk.yellow(
+          `No row of the compatibility matrix covers Linux ${show(kernel)}; trying OpenZFS ${ZFS_DEVELOPMENT_BRANCH}, where support for new kernels lands first.`
+        )
+      );
     }
-    await run(["git", "-C", zfsDir, "checkout", "-f", "FETCH_HEAD"]);
-    // A tree configured for another kernel keeps stale probes around.
-    await runQuiet(["make", "-C", zfsDir, "distclean"]);
   }
+  await checkoutZfs(zfsDir, repo, version);
+  const meta = parseZfsMeta(await Deno.readTextFile(`${zfsDir}/META`));
+  if (kernel && !zfsSupports(meta, kernel)) {
+    console.log(
+      chalk.red(
+        `OpenZFS ${version} (${meta.version ?? "?"}) builds against Linux ${show(meta.linuxMinimum)}–${show(meta.linuxMaximum)}, not ${show(kernel)}. ` +
+          (probing
+            ? "Nothing supports this kernel yet; pass --zfs-version <ref> to try one anyway, or --no-zfs."
+            : requested !== undefined
+            ? "Pass a ref whose META covers it, or drop --zfs-version to use the matrix."
+            : "The matrix row is wrong for this tree; fix ZFS_COMPATIBILITY in zfs.ts.")
+      )
+    );
+    Deno.exit(1);
+  }
+  if (probing) {
+    // Name the exact snapshot, so the kernel can be reproduced and a matrix
+    // row added.
+    version = await capture(["git", "-C", zfsDir, "rev-parse", "HEAD"]);
+    console.log(chalk.yellow(`Using OpenZFS ${meta.version ?? ZFS_DEVELOPMENT_BRANCH} development snapshot ${version}; add it to ZFS_COMPATIBILITY once it proves out.`));
+  }
+  console.log(chalk.magenta(`OpenZFS ${chalk.cyan(version)} (${meta.version ?? "?"}, Linux ${show(meta.linuxMinimum)}–${show(meta.linuxMaximum)}) for kernel ${show(kernel)}`));
 
   // The configure probes are external-module builds, which Kbuild refuses
   // on a module-less config: turn modules on for the probe only.
@@ -197,7 +273,11 @@ const rawArgs = Deno.args;
 //   --zfs / --no-zfs      build OpenZFS into the kernel (CONFIG_ZFS=y). On by
 //                         default for upstream linux-stable builds; off for
 //                         --repo / --defconfig board builds unless --zfs.
-//   --zfs-version <tag>   OpenZFS git tag to build in (default: zfs-2.4.4).
+//   --zfs-version <ref>   OpenZFS git tag, branch or commit to build in. By
+//                         default the compatibility matrix in zfs.ts picks
+//                         the release for the kernel line; a kernel newer
+//                         than every row tries master; the build stops if
+//                         that cannot build against it either.
 //   --zfs-repo <url>      OpenZFS git repository (default: openzfs/zfs).
 // Anything not matching a flag is treated as the positional kernel version.
 let repoInput: string | undefined;
@@ -216,7 +296,7 @@ let uimageLoad = "0x41000000";
 let uimageEntry = "0x41000000";
 let uimageName: string | undefined;
 let zfsFlag: boolean | undefined;
-let zfsVersion = DEFAULT_ZFS_VERSION;
+let zfsVersion: string | undefined;
 let zfsRepo = DEFAULT_ZFS_REPO;
 const positional: string[] = [];
 
@@ -382,7 +462,7 @@ const withZfs = zfsEnabled(zfsFlag, {
 if (withZfs) {
   console.log(
     chalk.magenta(
-      `OpenZFS ${chalk.cyan(zfsVersion)} will be built into the kernel (CONFIG_ZFS=y); pass --no-zfs to skip.`
+      `OpenZFS ${chalk.cyan(zfsVersion ?? "(from the compatibility matrix)")} will be built into the kernel (CONFIG_ZFS=y); pass --no-zfs to skip.`
     )
   );
 }

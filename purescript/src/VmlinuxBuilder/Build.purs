@@ -9,7 +9,7 @@ import Prelude
 
 import Data.Either (Either(..))
 import Data.Foldable (for_)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.String (Pattern(..), contains)
 import Data.String.Regex (test)
 import Data.String.Regex.Flags (ignoreCase)
@@ -21,7 +21,7 @@ import VmlinuxBuilder.Log as Log
 import VmlinuxBuilder.Options (ConfigMode(..), Options, Source(..), UimageOptions, isBoardBuild, outputLabel)
 import VmlinuxBuilder.Shell (capture, chdir, copyFile, cwd, exists, fetchText, machineArch, nproc, readText, rename, run, runQuiet, runWithYes, sudoPrefix, which, writeText)
 import VmlinuxBuilder.Version (gitRef)
-import VmlinuxBuilder.Zfs (configHasZfs, configWithModules, configWithZfs, zfsConfigureArgs, zfsEnabled)
+import VmlinuxBuilder.Zfs (KernelLine, configHasZfs, configWithModules, configWithZfs, developmentBranch, isCommit, kernelLine, parseZfsMeta, zfsConfigureArgs, zfsEnabled, zfsForKernel, zfsSupports)
 
 linuxStable :: String
 linuxStable = "linux-stable"
@@ -39,7 +39,8 @@ build opts = do
   announce opts
   let withZfs = zfsEnabled opts.zfs { board: isBoardBuild opts }
   when withZfs $ Log.step $
-    "OpenZFS " <> Log.cyan opts.zfsVersion <> " will be built into the kernel (CONFIG_ZFS=y); pass --no-zfs to skip."
+    "OpenZFS " <> Log.cyan (fromMaybe "(from the compatibility matrix)" opts.zfsVersion)
+      <> " will be built into the kernel (CONFIG_ZFS=y); pass --no-zfs to skip."
 
   installBuildDeps
   checkoutKernel opts.source
@@ -142,30 +143,87 @@ configure = case _ of
     chdir linuxStable
     copyFile "../.config" ".config"
 
--- | Copy OpenZFS into the kernel tree (the working directory) and switch it
--- | on. OpenZFS's `copy-builtin` does the copying; what this guards against
--- | is documented beside each step.
-buildInZfs :: String -> String -> Aff Unit
-buildInZfs repo version = do
-  kernelDir <- cwd
-  Log.step ("Building OpenZFS " <> Log.cyan version <> " into the kernel...")
-
-  -- autogen needs the autotools; `--with-config=kernel` needs nothing else.
-  aptInstall [ "autoconf", "automake", "libtool", "gawk" ]
-
-  let zfsDir = kernelDir <> "/../zfs"
+-- | Put `ref` of the OpenZFS repository at `zfsDir`: a tag or branch is
+-- | cloned shallowly, a commit is fetched by hash; an existing tree is
+-- | re-fetched and reset, so it is reused across builds like `linux-stable`.
+checkoutZfs :: String -> String -> String -> Aff Unit
+checkoutZfs zfsDir repo ref = do
   present <- exists zfsDir
-  if not present then
-    run [ "git", "clone", "--depth=1", "--branch", version, repo, zfsDir ]
-  else do
-    shallow <- attempt (run [ "git", "-C", zfsDir, "fetch", "--depth=1", "origin", version ])
+  fresh <-
+    if present then pure false
+    else if isCommit ref then do
+      run [ "git", "init", "-q", zfsDir ]
+      run [ "git", "-C", zfsDir, "remote", "add", "origin", repo ]
+      pure false
+    else do
+      run [ "git", "clone", "--depth=1", "--branch", ref, repo, zfsDir ]
+      pure true
+  unless fresh do
+    shallow <- attempt (run [ "git", "-C", zfsDir, "fetch", "--depth=1", "origin", ref ])
     case shallow of
       Right _ -> pure unit
-      Left _ -> run [ "git", "-C", zfsDir, "fetch", "origin", version ]
+      Left _ -> run [ "git", "-C", zfsDir, "fetch", "origin", ref ]
     run [ "git", "-C", zfsDir, "checkout", "-f", "FETCH_HEAD" ]
     -- A tree configured for another kernel keeps stale probes around.
     _ <- runQuiet [ "make", "-C", zfsDir, "distclean" ]
     pure unit
+
+showLine :: Maybe KernelLine -> String
+showLine = case _ of
+  Just k -> show k.major <> "." <> show k.minor
+  Nothing -> "?"
+
+-- | Copy OpenZFS into the kernel tree (the working directory) and switch it
+-- | on. OpenZFS's `copy-builtin` does the copying; what this guards against
+-- | is documented beside each step.
+buildInZfs :: String -> Maybe String -> Aff Unit
+buildInZfs repo requested = do
+  kernelDir <- cwd
+  Log.step "Building OpenZFS into the kernel..."
+
+  -- autogen needs the autotools; `--with-config=kernel` needs nothing else.
+  aptInstall [ "autoconf", "automake", "libtool", "gawk" ]
+
+  -- The kernel this tree is, from the tree itself: right for a `.y` branch
+  -- and for a custom repository alike.
+  kernel <- kernelLine <$> capture [ "make", "-s", "-C", kernelDir, "kernelversion" ]
+  let zfsDir = kernelDir <> "/../zfs"
+
+  -- Which OpenZFS: what was asked for, else the matrix's row for this kernel
+  -- line, else — a kernel newer than every row — master, where support for
+  -- a new kernel lands first. Whatever is checked out is verified against
+  -- the kernel through its own META, the two bounds configure enforces, so
+  -- a wrong row or request fails here with both numbers instead of inside
+  -- configure after the clone.
+  { version, probing } <- case requested, kernel of
+    Just v, _ -> pure { version: v, probing: false }
+    Nothing, Nothing -> throwError $ error
+      "Could not read the kernel version from the tree (make kernelversion); pass --zfs-version <ref>."
+    Nothing, Just k -> case zfsForKernel k of
+      Just row -> do
+        Log.step $ "Compatibility matrix: OpenZFS " <> row.version <> " (" <> row.ref
+          <> (if row.development then ", development snapshot" else "") <> ") for Linux " <> showLine (Just k) <> "."
+        pure { version: row.ref, probing: false }
+      Nothing -> do
+        Log.warn $ "No row of the compatibility matrix covers Linux " <> showLine (Just k)
+          <> "; trying OpenZFS " <> developmentBranch <> ", where support for new kernels lands first."
+        pure { version: developmentBranch, probing: true }
+  checkoutZfs zfsDir repo version
+  meta <- parseZfsMeta <$> readText (zfsDir <> "/META")
+  for_ kernel \k -> unless (zfsSupports meta k) $ throwError $ error $
+    "OpenZFS " <> version <> " (" <> fromMaybe "?" meta.version <> ") builds against Linux "
+      <> showLine meta.linuxMinimum <> "–" <> showLine meta.linuxMaximum <> ", not " <> showLine (Just k) <> ". "
+      <> case requested, probing of
+        _, true -> "Nothing supports this kernel yet; pass --zfs-version <ref> to try one anyway, or --no-zfs."
+        Just _, _ -> "Pass a ref whose META covers it, or drop --zfs-version to use the matrix."
+        Nothing, _ -> "The matrix row is wrong for this tree; fix zfsCompatibility in VmlinuxBuilder.Zfs."
+  when probing do
+    -- Name the exact snapshot, so the kernel can be reproduced and a row added.
+    snapshot <- capture [ "git", "-C", zfsDir, "rev-parse", "HEAD" ]
+    Log.warn $ "Using OpenZFS " <> fromMaybe developmentBranch meta.version <> " development snapshot "
+      <> snapshot <> "; add it to zfsCompatibility once it proves out."
+  Log.step $ "OpenZFS " <> Log.cyan version <> " (" <> fromMaybe "?" meta.version <> ", Linux "
+    <> showLine meta.linuxMinimum <> "–" <> showLine meta.linuxMaximum <> ") for kernel " <> showLine kernel
 
   -- The configure probes are external-module builds, which Kbuild refuses
   -- on a module-less config: modules on for the probe only.

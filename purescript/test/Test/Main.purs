@@ -20,7 +20,7 @@ import VmlinuxBuilder.Options (ConfigMode(..), Source(..), parseArgs)
 import VmlinuxBuilder.Toml (TomlValue(..))
 import VmlinuxBuilder.Toml as Toml
 import VmlinuxBuilder.Version (KernelVersion(..), gitRef, parseKernelVersion, versionLabel)
-import VmlinuxBuilder.Zfs (configHasZfs, configWithModules, configWithZfs, zfsConfigureArgs, zfsEnabled)
+import VmlinuxBuilder.Zfs (compareKernelLines, configHasZfs, configWithModules, configWithZfs, isCommit, kernelLine, parseZfsMeta, zfsCompatibility, zfsConfigureArgs, zfsEnabled, zfsForKernel, zfsSupports)
 
 assert :: String -> Boolean -> Aff Unit
 assert message ok = unless ok $ throwError $ error ("assertion failed: " <> message)
@@ -216,6 +216,7 @@ versionTests = do
   assertEq "maintenance ref" "linux-6.16.y" (gitRef (Maintenance "6.16"))
   assertEq "maintenance label" "6.16" (versionLabel (Maintenance "6.16"))
 
+
 -- ---------------------------------------------------------------------------
 
 optionsTests :: Aff Unit
@@ -225,6 +226,7 @@ optionsTests = do
     Right o -> do
       assertEq "upstream source" (Upstream (Release "7.2.15")) o.source
       assertEq "zfs off" (Just false) o.zfs
+      assertEq "explicit zfs version" (Just "zfs-2.4.4") o.zfsVersion
       assert "initrd" o.initrd
       assertEq "uimage comp" (Just "gzip") (o.uimage <#> _.comp)
       assertEq "default config mode" DefaultConfig o.config
@@ -257,3 +259,22 @@ zfsTests = do
   assert "configHasZfs" (configHasZfs withZfs && not (configHasZfs base) && not (configHasZfs "CONFIG_ZFS=m\n"))
   assertEq "modules on" "CONFIG_64BIT=y\nCONFIG_MODULES=y\n" (configWithModules "CONFIG_64BIT=y\n# CONFIG_MODULES is not set\n")
   assertEq "modules already on" "CONFIG_MODULES=y\n" (configWithModules "CONFIG_MODULES=y\n")
+  -- Kernel lines, META and the compatibility matrix.
+  assertEq "kernel line of a release" (Just { major: 7, minor: 3 }) (kernelLine "7.3.5")
+  assertEq "kernel line of a branch" (Just { major: 6, minor: 17 }) (kernelLine "6.17.y")
+  assertEq "kernel line of an rc" (Just { major: 7, minor: 3 }) (kernelLine "v7.3.0-rc2")
+  assertEq "not a kernel line" Nothing (kernelLine "orange-pi-6.6")
+  let meta = parseZfsMeta "Meta:          1\nVersion:       2.4.4\nRelease:       1\nLinux-Maximum: 7.2\nLinux-Minimum: 4.18\n"
+  assertEq "META version" (Just "2.4.4") meta.version
+  assertEq "META maximum" (Just { major: 7, minor: 2 }) meta.linuxMaximum
+  assert "2.4.4 supports 7.2 and 6.17" (zfsSupports meta { major: 7, minor: 2 } && zfsSupports meta { major: 6, minor: 17 })
+  assert "2.4.4 refuses 7.3 (the first CI run) and 4.4" (not (zfsSupports meta { major: 7, minor: 3 }) && not (zfsSupports meta { major: 4, minor: 4 }))
+  assert "a META without bounds is not refused" (zfsSupports (parseZfsMeta "Version: x\n") { major: 9, minor: 9 })
+  assertEq "7.2 gets the release" (Just "zfs-2.4.4") (_.ref <$> zfsForKernel { major: 7, minor: 2 })
+  assertEq "older kernels get the release" (Just "zfs-2.4.4") (_.ref <$> zfsForKernel { major: 6, minor: 17 })
+  assertEq "7.3 is on master only" (Just true) ((\r -> r.development && isCommit r.ref) <$> zfsForKernel { major: 7, minor: 3 })
+  assertEq "7.4 is uncovered: the build probes master" Nothing (_.ref <$> zfsForKernel { major: 7, minor: 4 })
+  assertEq "too old for every row" Nothing (_.ref <$> zfsForKernel { major: 4, minor: 4 })
+  assert "the matrix is newest-first" (Array.all identity (Array.zipWith (\a b -> compareKernelLines a.linuxMaximum b.linuxMaximum /= LT) zfsCompatibility (Array.drop 1 zfsCompatibility)))
+  assert "every row has sane bounds and a ref of the right kind"
+    (Array.all (\r -> compareKernelLines r.linuxMinimum r.linuxMaximum == LT && (if r.development then isCommit r.ref else String.take 4 r.ref == "zfs-")) zfsCompatibility)

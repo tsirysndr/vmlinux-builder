@@ -74,15 +74,32 @@ The tool provides enhanced kernel configuration handling with:
 ### OpenZFS
 
 Every upstream build carries OpenZFS in the kernel. Before `make vmlinux`, the
-tool clones the pinned OpenZFS release (`zfs-2.4.4`, which supports kernels up
-to 7.2), configures it kernel-only (`--with-config=kernel --enable-linux-builtin`),
-runs its `copy-builtin` into the tree and sets `CONFIG_ZFS=y`. The result is a
+tool clones the OpenZFS pinned for that kernel line, configures it kernel-only
+(`--with-config=kernel --enable-linux-builtin`), runs its `copy-builtin` into
+the tree and sets `CONFIG_ZFS=y`.
+
+Which OpenZFS is decided by a **compatibility matrix kept in the code**
+(`ZFS_COMPATIBILITY` in `zfs.ts`, `zfsCompatibility` in the PureScript port),
+each row being an OpenZFS ref and the kernel lines its own `META` declares.
+OpenZFS's configure refuses a kernel outside those bounds, which is what the
+first 7.3 build ran into. The kernel line is read from the checked-out tree
+(`make kernelversion`), so it is right for `.y` branches and custom trees too:
+
+| Kernel line     | OpenZFS                                                                        |
+| --------------- | ------------------------------------------------------------------------------ |
+| 4.18 – 7.2      | `zfs-2.4.4`, the newest release covering it                                    |
+| 7.3             | master commit `d1a5b59` (2.4.99): support is on master only, the backport to 2.4.5 is still open |
+| beyond the rows | `master` is tried and verified through its `META`; the build stops if even that cannot build against the kernel |
+
+Whatever is checked out is verified against the kernel through its `META`
+before configure runs, so a wrong row, or a `--zfs-version` that does not
+cover the kernel, fails at once with both numbers. Add a row when a release
+ships with a new `Linux-Maximum`. The result is a
 kernel where `zpool`/`zfs` from any distribution package work without a module:
 nothing to load, nothing to match against a kernel version.
 
 - `--no-zfs` — leave it out.
-- `--zfs-version <tag>` — another OpenZFS tag (bump it together with the kernel:
-  each OpenZFS release names the newest kernel it supports).
+- `--zfs-version <ref>` — another OpenZFS tag, branch or commit, overriding the table.
 - `--zfs-repo <url>` — another OpenZFS repository.
 - Board builds (`--repo`, `--defconfig`) are left alone by default; pass `--zfs`
   to opt in.

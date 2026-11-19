@@ -85,7 +85,8 @@ type Options =
   , uimage :: Maybe UimageOptions
   -- | `--zfs`/`--no-zfs`; `Nothing` leaves it to the build's default.
   , zfs :: Maybe Boolean
-  , zfsVersion :: String
+  -- | `--zfs-version`; `Nothing` lets the build choose by kernel version.
+  , zfsVersion :: Maybe String
   , zfsRepo :: String
   }
 
@@ -113,7 +114,7 @@ usage = joinWith "\n"
   , "  --modules             also build and archive lib/modules (when CONFIG_MODULES=y)"
   , "  --uimage [--uimage-arch|os|type|comp|load|entry|name <v>]  wrap the arm64 Image for U-Boot"
   , "  --zfs | --no-zfs      build OpenZFS in (default: on for upstream builds, off for board builds)"
-  , "  --zfs-version <tag>   OpenZFS tag (default: " <> Zfs.defaultZfsVersion <> ")"
+  , "  --zfs-version <ref>   OpenZFS tag, branch or commit (default: the compatibility matrix's row for the kernel line)"
   , "  --zfs-repo <url>      OpenZFS repository (default: " <> Zfs.defaultZfsRepo <> ")"
   ]
 
@@ -129,7 +130,7 @@ type Raw =
   , uimage :: Boolean
   , uimageOpts :: UimageOptions
   , zfs :: Maybe Boolean
-  , zfsVersion :: String
+  , zfsVersion :: Maybe String
   , zfsRepo :: String
   , positional :: Array String
   }
@@ -146,7 +147,7 @@ emptyRaw =
   , uimage: false
   , uimageOpts: defaultUimage
   , zfs: Nothing
-  , zfsVersion: Zfs.defaultZfsVersion
+  , zfsVersion: Nothing
   , zfsRepo: Zfs.defaultZfsRepo
   , positional: []
   }
@@ -199,7 +200,7 @@ parseArgs args = go emptyRaw (List.fromFoldable args) >>= resolve
     "--uimage-load" -> raw { uimageOpts = raw.uimageOpts { load = v } }
     "--uimage-entry" -> raw { uimageOpts = raw.uimageOpts { entry = v } }
     "--uimage-name" -> raw { uimageOpts = raw.uimageOpts { name = Just v } }
-    "--zfs-version" -> raw { zfsVersion = v }
+    "--zfs-version" -> raw { zfsVersion = Just v }
     "--zfs-repo" -> raw { zfsRepo = v }
     _ -> raw
 

@@ -34,7 +34,7 @@ also wants `autoconf automake libtool gawk`.
 | `VmlinuxBuilder.Options`        | Every flag of `build.ts`, parsed into `Options`: a `Source` (upstream version or custom tree), a `ConfigMode`, the artifact switches. |
 | `VmlinuxBuilder.Version`        | `KernelVersion`: a release tag (`v6.16.2`) or a maintenance branch (`linux-6.16.y`), and the artifact label. |
 | `VmlinuxBuilder.Build`          | The pipeline as named `Aff` steps: toolchain, checkout, `.config`, prepare, OpenZFS, `make vmlinux`, Image, uImage, initrd, modules. |
-| `VmlinuxBuilder.Zfs`            | The OpenZFS decisions and `.config` edits, pure and tested.                                                  |
+| `VmlinuxBuilder.Zfs`            | The OpenZFS compatibility matrix, `META` parsing and verification, and the `.config` edits, pure and tested.  |
 | `VmlinuxBuilder.Shell`          | Processes, files, cwd and one HTTP fetch, as `Aff` — the only module that touches the host.                  |
 | `VmlinuxBuilder.Config`         | The `config.ts` port: parse, query, serialize to `.config`/JSON/TOML/YAML/Makefile/shell/diff.                |
 | `VmlinuxBuilder.Toml`           | The sliver of TOML a kernel config needs (the registry has no TOML package).                                 |
