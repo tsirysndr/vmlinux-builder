@@ -18,11 +18,11 @@ jobs:
         shell: bash
         run: >-
           fluentci run setup-purescript setup --version 0.15.16
-          --node-version 24.13.1 --spago-version 1.0.5
+          --node-version 24.13.1 --spago-version 1.0.5 --bun-version 1.4.5
           | node "$GITHUB_WORKSPACE/.fluentci/github-env.mjs"
-      - name: Build vmlinux-builder
+      - name: Build vmlinux-builder binary
         working-directory: purescript
-        run: spago build
+        run: npm run build:bin
       - name: Set TAG and VERSION
         shell: bash
         run: |
@@ -42,7 +42,7 @@ jobs:
 
       - name: Build
         run: |
-          node "$GITHUB_WORKSPACE/purescript/bin/vmlinux-builder.js" "$TAG"
+          "$GITHUB_WORKSPACE/purescript/dist/vmlinux-builder" "$TAG"
           sha256sum linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }} > linux-stable/vmlinux-${{ env.VERSION }}.${{ env.CPU_ARCH }}.sha256
 
       - name: Upload artifact
