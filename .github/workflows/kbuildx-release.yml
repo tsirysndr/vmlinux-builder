@@ -27,8 +27,15 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - uses: fluentci-io/setup-fluentci@next
+
+      # The module's environment (PATH, RUSTUP_HOME, CARGO_HOME, the
+      # toolchain) reaches the build and package steps through github-env.mjs.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        shell: bash
+        run: >-
+          fluentci run setup-rust setup --toolchain stable --targets "${{ matrix.target }}"
+          | node "$GITHUB_WORKSPACE/.fluentci/github-env.mjs"
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
