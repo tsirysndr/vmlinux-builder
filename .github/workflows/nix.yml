@@ -47,7 +47,14 @@ jobs:
           brew trust libkrun/krun || true  # `trust` only exists on Homebrew 6.x+
           brew install tsirysndr/tap/libkrun
 
+      # BSDKRUN_IMPURE=1 is the other half of --impure: bsdkrun's flake imports
+      # Homebrew's libkrun into the store only when it is set, and links
+      # /opt/homebrew/opt/libkrun by bare path otherwise — a path the build
+      # sandbox cannot see, so the link failed with "library not found for
+      # -lkrun". Inert on Linux, where the flake takes libkrun from nixpkgs.
       - name: Build kbuildx
+        env:
+          BSDKRUN_IMPURE: "1"
         run: nix build ".#packages.${{ matrix.system }}.kbuildx" --print-build-logs ${{ matrix.flags }}
 
       - name: Verify packaged CLI
