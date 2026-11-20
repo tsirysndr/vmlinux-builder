@@ -1,0 +1,50 @@
+{
+  "name": "kbuildx",
+  "version": "0.1.0",
+  "description": "Interactive Linux and BSD kernel builder (Ratatui TUI + CLI) that builds inside bsdkrun microVMs or directly on a Linux host. Installs the prebuilt kbuildx binary for your platform.",
+  "license": "MIT",
+  "homepage": "https://github.com/tsirysndr/vmlinux-builder/tree/main/kbuildx#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tsirysndr/vmlinux-builder.git",
+    "directory": "kbuildx/npm"
+  },
+  "bugs": {
+    "url": "https://github.com/tsirysndr/vmlinux-builder/issues"
+  },
+  "keywords": [
+    "kbuildx",
+    "kernel",
+    "vmlinux",
+    "linux",
+    "freebsd",
+    "netbsd",
+    "bsdkrun",
+    "microvm",
+    "cli",
+    "tui"
+  ],
+  "bin": {
+    "kbuildx": "bin/kbuildx.js"
+  },
+  "files": [
+    "bin/kbuildx.js",
+    "scripts/postinstall.js",
+    "scripts/platform.js",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}

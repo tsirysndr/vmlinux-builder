@@ -21,6 +21,25 @@ On Linux, builds can run directly on hosts with `apk`, `apt-get`, or `dnf`. Alpi
 
 ## Installation
 
+Prebuilt binaries are published for macOS/arm64 (Apple Silicon), Linux/x86_64 and Linux/aarch64 on every [`kbuildx-v*` release](https://github.com/tsirysndr/vmlinux-builder/releases); both installers verify the archive's SHA-256.
+
+### With curl
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/tsirysndr/vmlinux-builder/main/kbuildx/install.sh | sh
+```
+
+The binary lands in `~/.kbuildx/bin` (set `KBUILDX_INSTALL` for another root); pin a release with `KBUILDX_VERSION=0.1.0` or `sh -s -- 0.1.0`.
+
+### With npm
+
+```sh
+npm install -g kbuildx
+kbuildx --help
+```
+
+Or without a global install: `npx kbuildx list`. The package downloads the binary for your platform at install time (see [`npm/`](npm/)).
+
 ### Build from source
 
 Requirements:
