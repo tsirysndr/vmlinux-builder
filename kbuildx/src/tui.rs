@@ -56,6 +56,16 @@ struct BuildProcess {
     child: Child,
     output: Receiver<Vec<u8>>,
     readers: Vec<thread::JoinHandle<()>>,
+    /// Our own handle on the pseudo-terminal's slave side, held until the
+    /// child has exited and its output is drained. macOS discards whatever
+    /// is still buffered in the master the moment the last slave closes, so
+    /// a build that exits faster than the reader thread keeps up loses its
+    /// final lines (the test for this lost all of them). Closing it is also
+    /// what ends the reader: EOF on macOS, EIO on Linux.
+    slave: Option<File>,
+    /// A second handle on the master, only ever polled, to tell whether the
+    /// reader still has data to pick up before the slave may close.
+    master: File,
 }
 
 struct App {
@@ -166,7 +176,18 @@ impl App {
                 chunks.push(chunk);
             }
             match build.child.try_wait() {
-                Ok(Some(status)) => finished = Some(status.code().unwrap_or(-1)),
+                // Exited, but the reader may not have drained the terminal
+                // yet. Keep the slave open while the master still has data
+                // (see BuildProcess::slave); once it is empty, closing the
+                // slave is what hands the reader its EOF. `try_wait` keeps
+                // answering with the status, so the next tick finishes.
+                Ok(Some(status)) if build.slave.is_some() && pty_has_pending(&build.master) => {
+                    let _ = status;
+                }
+                Ok(Some(status)) => {
+                    build.slave.take();
+                    finished = Some(status.code().unwrap_or(-1));
+                }
                 Ok(None) => {}
                 Err(error) => {
                     self.logs.push(format!("Unable to inspect build: {error}"));
@@ -218,7 +239,10 @@ impl App {
         } else {
             command.args(&self.build_args);
         }
-        let (output, child_stdout, child_stderr) = output_pty()?;
+        let (output, slave, child_stdout, child_stderr) = output_pty()?;
+        let master = output
+            .try_clone()
+            .context("cloning build pseudo-terminal")?;
         command.stdout(child_stdout).stderr(child_stderr);
         #[cfg(unix)]
         {
@@ -273,6 +297,8 @@ impl App {
             child,
             output: rx,
             readers,
+            slave: Some(slave),
+            master,
         });
         Ok(())
     }
@@ -563,7 +589,10 @@ impl App {
 }
 
 #[cfg(unix)]
-fn output_pty() -> Result<(File, Stdio, Stdio)> {
+/// A pseudo-terminal for the build: the master to read from, a slave handle
+/// the caller keeps (see [`BuildProcess::slave`]), and the child's stdout and
+/// stderr on that slave.
+fn output_pty() -> Result<(File, File, Stdio, Stdio)> {
     use std::os::fd::FromRawFd;
 
     let mut master = -1;
@@ -586,12 +615,34 @@ fn output_pty() -> Result<(File, Stdio, Stdio)> {
     let master = unsafe { File::from_raw_fd(master) };
     // SAFETY: openpty returned owned, valid file descriptors.
     let slave = unsafe { File::from_raw_fd(slave) };
+    let stdout = slave.try_clone().context("cloning build pseudo-terminal")?;
     let stderr = slave.try_clone().context("cloning build pseudo-terminal")?;
-    Ok((master, Stdio::from(slave), Stdio::from(stderr)))
+    Ok((master, slave, Stdio::from(stdout), Stdio::from(stderr)))
+}
+
+/// Whether the master still holds output the reader has not taken.
+#[cfg(unix)]
+fn pty_has_pending(master: &File) -> bool {
+    use std::os::fd::AsRawFd;
+
+    let mut pfd = libc::pollfd {
+        fd: master.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    // SAFETY: pfd is a valid pollfd for the duration of the call and the
+    // timeout of zero makes this a plain readiness query.
+    let ready = unsafe { libc::poll(&mut pfd, 1, 0) };
+    ready > 0 && (pfd.revents & libc::POLLIN) != 0
 }
 
 #[cfg(not(unix))]
-fn output_pty() -> Result<(File, Stdio, Stdio)> {
+fn pty_has_pending(_master: &File) -> bool {
+    false
+}
+
+#[cfg(not(unix))]
+fn output_pty() -> Result<(File, File, Stdio, Stdio)> {
     anyhow::bail!("the TUI build log pseudo-terminal is unsupported on this platform")
 }
 
@@ -1192,7 +1243,11 @@ mod tests {
         use std::io::Read;
         use std::process::Command;
 
-        let (mut output, stdout, stderr) = output_pty().unwrap();
+        // `slave` stays open across the child's exit, as the app keeps its
+        // own: macOS throws away output still buffered in the master when
+        // the last slave closes, and a child this short is gone before any
+        // reader gets to it — without the held handle this captured "".
+        let (mut output, slave, stdout, stderr) = output_pty().unwrap();
         let status = Command::new("sh")
             .args([
                 "-c",
@@ -1202,11 +1257,22 @@ mod tests {
             .stderr(stderr)
             .status()
             .unwrap();
-        // Drain the master like the app's reader thread does: once the child's
-        // slave side closes, Linux reports EIO where macOS reports EOF — both
-        // just mean the output is finished.
+        assert!(
+            super::pty_has_pending(&output),
+            "nothing buffered after the child exited"
+        );
+        // Drain like the app's reader thread does, until the output the child
+        // wrote has arrived; closing the slave then ends the reader (EOF on
+        // macOS, EIO on Linux — both just mean the output is finished).
         let mut captured = String::new();
         let mut buffer = [0_u8; 4096];
+        while !(captured.contains("stdout") && captured.contains("stderr")) {
+            match output.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(length) => captured.push_str(&String::from_utf8_lossy(&buffer[..length])),
+            }
+        }
+        drop(slave);
         loop {
             match output.read(&mut buffer) {
                 Ok(0) | Err(_) => break,
