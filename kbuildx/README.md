@@ -34,11 +34,11 @@ The binary lands in `~/.kbuildx/bin` (set `KBUILDX_INSTALL` for another root); p
 ### With npm
 
 ```sh
-npm install -g kbuildx
+npm install -g @tsiry/kbuildx
 kbuildx --help
 ```
 
-Or without a global install: `npx kbuildx list`. The package downloads the binary for your platform at install time (see [`npm/`](npm/)).
+Or without a global install: `npx @tsiry/kbuildx list`. The package downloads the binary for your platform at install time (see [`npm/`](npm/)).
 
 ### Build from source
 
