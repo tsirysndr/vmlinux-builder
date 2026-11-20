@@ -10,6 +10,7 @@
   },
   "scripts": {
     "build": "spago build",
+    "build:bin": "spago build && bun build --compile bin/vmlinux-builder.js --outfile dist/vmlinux-builder",
     "test": "spago test",
     "start": "spago build && node bin/vmlinux-builder.js"
   },

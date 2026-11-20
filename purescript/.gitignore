@@ -4,3 +4,4 @@ output-es/
 .spago/
 .psci_modules/
 .purs-repl
+dist/
