@@ -37,9 +37,15 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
 
+      # The formula depends on libkrun/krun/libkrunfw, and Homebrew only
+      # resolves a dependency from a tap that is tapped (and, on Homebrew 6,
+      # trusted) first — otherwise it fails with "No available formula".
       - name: Install libkrun (macOS)
         if: runner.os == 'macOS'
-        run: brew install tsirysndr/tap/libkrun
+        run: |
+          brew tap libkrun/krun
+          brew trust libkrun/krun || true  # `trust` only exists on Homebrew 6.x+
+          brew install tsirysndr/tap/libkrun
 
       - name: Build kbuildx
         run: nix build ".#packages.${{ matrix.system }}.kbuildx" --print-build-logs ${{ matrix.flags }}
