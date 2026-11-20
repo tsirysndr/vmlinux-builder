@@ -2,6 +2,28 @@
 set -eu
 
 export PATH=/usr/pkg/bin:/usr/pkg/sbin:/sbin:/usr/sbin:/bin:/usr/bin
+
+# The microVM has no RTC the kernel trusts, so NetBSD comes up with a stale
+# clock (the image's build date) and every TLS certificate is "not yet
+# valid" — git's clone of the source tree died on exactly that. NTP first;
+# failing that, the Date header of a plain-HTTP response from the CDN that
+# pkgin fetches from anyway.
+sync_clock() {
+    ntpdate -b -t 5 pool.ntp.org >/dev/null 2>&1 && return 0
+    hdr=$(curl -sI --max-time 10 http://cdn.NetBSD.org/ 2>/dev/null | tr -d '\r' | sed -n 's/^[Dd]ate: //p' | head -n 1)
+    [ -n "$hdr" ] || return 1
+    stamp=$(printf '%s\n' "$hdr" | awk '{
+        split("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec", m, " ");
+        for (i = 1; i <= 12; i++) if (m[i] == $3) mon = i;
+        split($5, t, ":");
+        printf "%04d%02d%02d%02d%02d.%02d", $4, mon, $2, t[1], t[2], t[3] }')
+    date -u "$stamp" >/dev/null 2>&1
+}
+# Base NetBSD has ntpdate but no curl, so this first pass can only try NTP;
+# the HTTP fallback gets its second chance below, once pkgin has fetched curl.
+sync_clock || true
+printf 'clock: %s\n' "$(date -u)"
+
 data_disk=/dev/ld1a
 data_raw=/dev/rld1a
 if ! mount | grep -q ' /root/kbuildx '; then
@@ -90,3 +112,8 @@ elif [ -x /usr/pkg/sbin/mozilla-rootcerts ]; then
 fi
 
 git --version
+
+# Second pass with curl available (see sync_clock above): the clone over HTTPS
+# that follows is the first thing here that checks a certificate's dates.
+sync_clock || printf '%s\n' 'warning: could not sync the clock; HTTPS fetches may fail' >&2
+printf 'clock: %s\n' "$(date -u)"
