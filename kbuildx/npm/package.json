@@ -1,5 +1,5 @@
 {
-  "name": "kbuildx",
+  "name": "@tsiry/kbuildx",
   "version": "0.1.0",
   "description": "Interactive Linux and BSD kernel builder (Ratatui TUI + CLI) that builds inside bsdkrun microVMs or directly on a Linux host. Installs the prebuilt kbuildx binary for your platform.",
   "license": "MIT",

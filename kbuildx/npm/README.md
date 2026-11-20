@@ -1,4 +1,4 @@
-# kbuildx
+# @tsiry/kbuildx
 
 Install the [`kbuildx`](https://github.com/tsirysndr/vmlinux-builder/tree/main/kbuildx)
 binary via npm.
@@ -12,7 +12,7 @@ Linux host with `apk`, `apt-get` or `dnf`.
 ## Install
 
 ```sh
-npm install -g kbuildx
+npm install -g @tsiry/kbuildx
 # then
 kbuildx --help
 ```
@@ -20,7 +20,7 @@ kbuildx --help
 Or run it without a global install:
 
 ```sh
-npx kbuildx list
+npx @tsiry/kbuildx list
 ```
 
 On install, a prebuilt `kbuildx` for your platform is downloaded from the

@@ -1,6 +1,6 @@
 "use strict";
 
-// Runs after `npm install kbuildx`. Downloads the prebuilt `kbuildx` binary
+// Runs after `npm install @tsiry/kbuildx`. Downloads the prebuilt `kbuildx` binary
 // for this platform from the matching GitHub release (tag `kbuildx-v<version>`
 // in tsirysndr/vmlinux-builder), verifies its SHA-256, and unpacks it into
 // ./binaries/ where the bin shim expects it.
