@@ -39,16 +39,27 @@ jobs:
         with:
           deno-version: v2.x
 
+      - uses: fluentci-io/setup-fluentci@next
+
+      # Docker Build Cloud: the builder is created on this runner first (the
+      # buildx module's former `build_cloud` did that itself; today's module
+      # exposes plain `build` with `--builder`). The cloud driver names it
+      # `cloud-<org>-<name>`.
+      - name: Create the Build Cloud builder
+        run: docker buildx create --driver cloud tsiry/rockbox-builder || true
+
       - name: Build and Publish image to Docker Hub
-        uses: fluentci-io/setup-fluentci@next
-        with:
-          wasm: true
-          plugin: buildx
-          args: |
-            build_cloud --platform linux/amd64,linux/arm64 -t tsiry/vmlinux-builder:latest . "--build-arg GITHUB_TOKEN=\"${GITHUB_ACCESS_TOKEN}\" --build-arg TAG=\"${TAG}\"" --push
+        shell: bash
+        run: >-
+          fluentci run buildx build
+          --run-dir "$RUNNER_TEMP/buildx-run"
+          --builder cloud-tsiry-rockbox-builder
+          --platform linux/amd64,linux/arm64
+          --tag tsiry/vmlinux-builder:latest
+          --build-arg "GITHUB_TOKEN=${GITHUB_ACCESS_TOKEN},TAG=${TAG}"
+          --push true
         env:
           GITHUB_ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BUILDX_BUILDER: tsiry/rockbox-builder
           TAG: ${{ inputs.tag || github.ref_name }}
 
       - name: Log in to Github Container Registry
